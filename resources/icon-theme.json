@@ -1,0 +1,12 @@
+{
+  "name": "hermes-icons",
+  "colors": {
+    "hermes.purple": "#6366f1",
+    "hermes.pink": "#ec4899",
+    "hermes.gold": "#fbbf24",
+    "hermes.gradient": "linear-gradient(135deg, #6366f1 0%, #ec4899 100%)"
+  },
+  "font": {
+    "family": "'JetBrains Mono', 'Fira Code', monospace"
+  }
+}

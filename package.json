@@ -1,0 +1,326 @@
+{
+  "name": "hermes-vscode",
+  "displayName": "Hermes Agent",
+  "description": "VS Code extension for Hermes Agent — AI coding agent with persistent memory, skills, and multi-platform messaging gateway. Connect via Agent Client Protocol (ACP).",
+  "version": "1.0.0",
+  "publisher": "nous-research",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Machine Learning",
+    "Chat"
+  ],
+  "keywords": [
+    "hermes",
+    "agent",
+    "ai",
+    "coding",
+    "acp",
+    "chat",
+    "autonomous"
+  ],
+  "icon": "resources/icon.svg",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NousResearch/hermes-agent"
+  },
+  "bugs": {
+    "url": "https://github.com/NousResearch/hermes-agent/issues"
+  },
+  "homepage": "https://hermes-agent.nousresearch.com/",
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:hermes.chat"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "views": {
+      "hermes": [
+        {
+          "id": "hermes.chat",
+          "name": "Hermes Chat",
+          "icon": "$(sparkle)",
+          "contextualTitle": "Hermes Agent",
+          "when": "hermes.isConnected"
+        },
+        {
+          "id": "hermes.sessions",
+          "name": "Sessions",
+          "icon": "$(history)",
+          "contextualTitle": "Hermes Sessions"
+        },
+        {
+          "id": "hermes.skills",
+          "name": "Skills",
+          "icon": "$(symbol-method)",
+          "contextualTitle": "Hermes Skills"
+        },
+        {
+          "id": "hermes.tools",
+          "name": "Tools",
+          "icon": "$(tools)",
+          "contextualTitle": "Hermes Tools"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "hermes",
+          "title": "Hermes",
+          "icon": "resources/hermes-icon.svg"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Hermes Agent",
+      "properties": {
+        "hermes.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable Hermes Agent extension"
+        },
+        "hermes.acpCommand": {
+          "type": "string",
+          "default": "hermes",
+          "description": "Command to start Hermes ACP server"
+        },
+        "hermes.acpArgs": {
+          "type": "array",
+          "default": [
+            "acp"
+          ],
+          "description": "Arguments for the ACP command"
+        },
+        "hermes.cwd": {
+          "type": "string",
+          "default": "${workspaceFolder}",
+          "description": "Working directory for Hermes Agent"
+        },
+        "hermes.autoApprovePermissions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve all tool permission requests"
+        },
+        "hermes.showTokenUsage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show token usage in status bar"
+        },
+        "hermes.streamingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable streaming responses"
+        },
+        "hermes.maxHistory": {
+          "type": "number",
+          "default": 100,
+          "description": "Maximum number of messages to keep in chat history"
+        },
+        "hermes.skillsPath": {
+          "type": "string",
+          "default": "~/.hermes/skills",
+          "description": "Path to Hermes skills directory"
+        },
+        "hermes.model": {
+          "type": "string",
+          "default": "",
+          "description": "Default model to use (empty = use Hermes default)"
+        },
+        "hermes.provider": {
+          "type": "string",
+          "default": "",
+          "description": "Default provider to use (empty = use Hermes default)"
+        },
+        "hermes.logLevel": {
+          "type": "string",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "default": "info",
+          "description": "Log level for Hermes ACP connection"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "hermes.connect",
+        "title": "Connect to Hermes",
+        "icon": "$(plug)",
+        "category": "Hermes"
+      },
+      {
+        "command": "hermes.disconnect",
+        "title": "Disconnect from Hermes",
+        "icon": "$(plug-off)",
+        "category": "Hermes"
+      },
+      {
+        "command": "hermes.newSession",
+        "title": "New Session",
+        "icon": "$(add)",
+        "category": "Hermes"
+      },
+      {
+        "command": "hermes.openChat",
+        "title": "Open Chat",
+        "icon": "$(comment)",
+        "category": "Hermes"
+      },
+      {
+        "command": "hermes.sendPrompt",
+        "title": "Send Prompt",
+        "icon": "$(arrow-right)",
+        "category": "Hermes"
+      },
+      {
+        "command": "hermes.cancelTurn",
+        "title": "Cancel Current Turn",
+        "icon": "$(stop)",
+        "category": "Hermes"
+      },
+      {
+        "command": "hermes.switchModel",
+        "title": "Switch Model",
+        "icon": "$(beaker)",
+        "category": "Hermes"
+      },
+      {
+        "command": "hermes.switchProvider",
+        "title": "Switch Provider",
+        "icon": "$(cloud)",
+        "category": "Hermes"
+      },
+      {
+        "command": "hermes.toggleAutoApprove",
+        "title": "Toggle Auto-Approve",
+        "icon": "$(shield)",
+        "category": "Hermes"
+      },
+      {
+        "command": "hermes.showTokenUsage",
+        "title": "Show Token Usage",
+        "icon": "$(graph)",
+        "category": "Hermes"
+      },
+      {
+        "command": "hermes.pickSkill",
+        "title": "Pick Skills",
+        "icon": "$(symbol-method)",
+        "category": "Hermes"
+      },
+      {
+        "command": "hermes.refreshSessions",
+        "title": "Refresh Sessions",
+        "icon": "$(refresh)",
+        "category": "Hermes"
+      },
+      {
+        "command": "hermes.openSettings",
+        "title": "Open Settings",
+        "icon": "$(gear)",
+        "category": "Hermes"
+      },
+      {
+        "command": "hermes.runSetup",
+        "title": "Run Hermes Setup",
+        "icon": "$(tools)",
+        "category": "Hermes"
+      },
+      {
+        "command": "hermes.checkACP",
+        "title": "Check ACP Dependencies",
+        "icon": "$(check)",
+        "category": "Hermes"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "hermes.newSession",
+          "when": "view == hermes.sessions",
+          "group": "navigation"
+        },
+        {
+          "command": "hermes.refreshSessions",
+          "when": "view == hermes.sessions",
+          "group": "navigation"
+        },
+        {
+          "command": "hermes.pickSkill",
+          "when": "view == hermes.skills",
+          "group": "navigation"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "hermes.sendPrompt",
+          "when": "hermes.isConnected",
+          "group": "navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "hermes.openChat",
+        "key": "ctrl+alt+h",
+        "mac": "cmd+alt+h",
+        "when": "hermes.enabled"
+      },
+      {
+        "command": "hermes.newSession",
+        "key": "ctrl+alt+n",
+        "mac": "cmd+alt+n",
+        "when": "hermes.enabled && hermes.isConnected"
+      },
+      {
+        "command": "hermes.cancelTurn",
+        "key": "ctrl+alt+c",
+        "mac": "cmd+alt+c",
+        "when": "hermes.enabled && hermes.isConnected"
+      }
+    ],
+    "iconThemes": [
+      {
+        "id": "hermes-icons",
+        "label": "Hermes Icons",
+        "path": "./resources/icon-theme.json"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "test": "jest",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/dompurify": "^3.0.0",
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.10.0",
+    "@types/uuid": "^9.0.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@vscode/vsce": "^2.24.0",
+    "eslint": "^8.55.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "dompurify": "^3.0.0",
+    "marked": "^11.0.0",
+    "uuid": "^9.0.0",
+    "vscode-languageclient": "^9.0.0"
+  }
+}
