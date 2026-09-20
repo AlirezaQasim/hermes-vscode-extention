@@ -91,6 +91,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.updateLastMessageThinking(this.pendingThinking);
     }
 
+    addThoughtChunk(content: string): void {
+        this.pendingThinking += content;
+        this.updateLastMessageThinking(this.pendingThinking);
+    }
+
+    private updateLastMessageThinking(thinking: string): void {
+        const lastMsg = this.messages[this.messages.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant') {
+            lastMsg.thinking = thinking;
+        }
+        this.refresh();
+    }
+
     addToolCall(toolCall: any): void {
         const lastMsg = this.messages[this.messages.length - 1];
         if (lastMsg && lastMsg.role === 'assistant') {
@@ -163,14 +176,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 content,
                 timestamp: new Date()
             });
-        }
-        this.refresh();
-    }
-
-    private updateLastMessageThinking(thinking: string): void {
-        const lastMsg = this.messages[this.messages.length - 1];
-        if (lastMsg && lastMsg.role === 'assistant') {
-            lastMsg.thinking = thinking;
         }
         this.refresh();
     }

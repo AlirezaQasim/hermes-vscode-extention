@@ -190,7 +190,7 @@ async function connectToHermes(): Promise<void> {
         });
 
         client.on('permissionRequest', (request) => {
-            permissionHandler.handleRequest(request);
+            ctx.permissionHandler.handleRequest(request);
         });
 
         client.on('toolCall', (toolCall) => {
@@ -403,10 +403,10 @@ async function runHermesSetup(): Promise<void> {
     const ctx = getExtensionContext();
     if (!ctx) return;
 
-    const cwd = ctx.config.get('cwd') || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
+    const cwd: string = ctx.config.get('cwd', vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd());
     const terminal = vscode.window.createTerminal({
         name: 'Hermes Setup',
-        cwd: vscode.Uri.file(cwd)
+        cwd
     });
     terminal.show();
     terminal.sendText('hermes setup');
@@ -416,10 +416,10 @@ async function checkACPDependencies(): Promise<void> {
     const ctx = getExtensionContext();
     if (!ctx) return;
 
-    const cwd = ctx.config.get('cwd') || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
+    const cwd: string = ctx.config.get('cwd', vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd());
     const terminal = vscode.window.createTerminal({
         name: 'Hermes ACP Check',
-        cwd: vscode.Uri.file(cwd)
+        cwd
     });
     terminal.show();
     terminal.sendText('hermes acp --check');
