@@ -36,26 +36,18 @@ export class PermissionHandler {
             return 'allow';
         }
 
-        return new Promise((resolve) => {
-            const toolCall = request.toolCall;
-            const message = `Allow ${toolCall.kind} operation: ${toolCall.name}?`;
-            const detail = this.formatToolCallDetail(toolCall);
+        const toolCall = request.toolCall;
+        const message = `Allow ${toolCall.kind} operation: ${toolCall.name}?`;
+        const detail = this.formatToolCallDetail(toolCall);
 
-            const buttons = request.options.map(opt => ({
-                label: opt.charAt(0).toUpperCase() + opt.slice(1),
-                value: opt
-            }));
+        const buttons = request.options.map(opt => ({
+            title: opt.charAt(0).toUpperCase() + opt.slice(1),
+            value: opt
+        }));
 
-            vscode.window.showInformationMessage(message, { detail, modal: true }, ...buttons)
-                .then(selected => {
-                    this.pendingRequests.delete(request.requestId);
-                    resolve(selected?.value || 'deny');
-                })
-                .catch(() => {
-                    this.pendingRequests.delete(request.requestId);
-                    resolve('deny');
-                });
-        });
+        const selected = await vscode.window.showInformationMessage(message, { detail, modal: true }, ...buttons);
+        this.pendingRequests.delete(request.requestId);
+        return selected?.value || 'deny';
     }
 
     private formatToolCallDetail(toolCall: any): string {

@@ -25,7 +25,7 @@ export class TerminalHandler {
         }
 
         const command = args.command || args.cmd || '';
-        const cwd = args.cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const cwd = args.cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
 
         if (!command) {
             this.logger.warn('No command provided for terminal tool call');
@@ -35,7 +35,7 @@ export class TerminalHandler {
         return new Promise((resolve, reject) => {
             const terminal = vscode.window.createTerminal({
                 name: `Hermes: ${command.slice(0, 30)}`,
-                cwd,
+                cwd: vscode.Uri.file(cwd),
                 hideFromUser: false
             });
 
@@ -87,23 +87,21 @@ export class TerminalHandler {
 
     async executeCommand(command: string, cwd?: string): Promise<string> {
         return new Promise((resolve, reject) => {
+            const terminalCwd = cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
             const terminal = vscode.window.createTerminal({
                 name: `Hermes: ${command.slice(0, 30)}`,
-                cwd,
+                cwd: terminalCwd,
                 hideFromUser: true
             });
 
             let output = '';
-            const disposal = vscode.window.onDidWriteTerminalData(e => {
-                if (e.terminal === terminal) {
-                    output += e.data;
-                }
-            });
-
+            // Note: onDidWriteTerminalData is not available in all VS Code versions
+            // We'll just wait for the terminal to close
+            
             const closeDisposal = vscode.window.onDidCloseTerminal(closedTerminal => {
                 if (closedTerminal === terminal) {
-                    disposal.dispose();
                     closeDisposal.dispose();
+                    // For now, we can't capture output without onDidWriteTerminalData
                     resolve(output);
                 }
             });
@@ -113,7 +111,6 @@ export class TerminalHandler {
 
             // Timeout
             setTimeout(() => {
-                disposal.dispose();
                 closeDisposal.dispose();
                 terminal.dispose();
                 reject(new Error('Command timed out'));
