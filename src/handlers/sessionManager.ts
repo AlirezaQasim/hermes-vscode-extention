@@ -1,4 +1,4 @@
-import { Logger } from '../utils/logger';
+import type { Logger } from '../utils/logger';
 
 interface SessionState {
     sessionId: string;

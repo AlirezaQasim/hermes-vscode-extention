@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { Logger } from '../utils/logger';
+import type { Logger } from '../utils/logger';
 
 interface TerminalSession {
     terminal: vscode.Terminal;
@@ -94,7 +94,7 @@ export class TerminalHandler {
                 hideFromUser: true
             });
 
-            let output = '';
+            const output = '';
             // Note: onDidWriteTerminalData is not available in all VS Code versions
             // We'll just wait for the terminal to close
             
@@ -134,7 +134,7 @@ export class TerminalHandler {
     }
 
     cancelAll(): void {
-        for (const [id, session] of this.sessions) {
+        for (const [, session] of this.sessions) {
             session.terminal.sendText('\x03');
             session.terminal.dispose();
         }

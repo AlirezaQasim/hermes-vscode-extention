@@ -3,6 +3,7 @@ import { ConfigManager } from '../src/config/manager';
 describe('ConfigManager', () => {
   let mockContext: any;
   let mockConfig: any;
+  let mockVscode: any;
 
   beforeEach(() => {
     mockConfig = {
@@ -15,7 +16,8 @@ describe('ConfigManager', () => {
       globalState: {}
     };
 
-    jest.spyOn(require('vscode').workspace, 'getConfiguration').mockReturnValue(mockConfig);
+    mockVscode = require('vscode');
+    jest.spyOn(mockVscode.workspace, 'getConfiguration').mockReturnValue(mockConfig);
   });
 
   afterEach(() => {
@@ -42,8 +44,12 @@ describe('ConfigManager', () => {
 
   it('should reload config', () => {
     const configManager = new ConfigManager(mockContext);
-    configManager.reload();
     
-    expect(require('vscode').workspace.getConfiguration).toHaveBeenCalledTimes(2);
+    // getConfiguration is called in constructor + reload
+    const initialCalls = mockVscode.workspace.getConfiguration.mock.calls.length;
+    configManager.reload();
+    const afterCalls = mockVscode.workspace.getConfiguration.mock.calls.length;
+    
+    expect(afterCalls - initialCalls).toBe(1);
   });
 });

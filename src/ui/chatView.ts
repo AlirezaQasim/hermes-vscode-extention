@@ -1,11 +1,10 @@
 import * as vscode from 'vscode';
-import { Logger } from '../utils/logger';
+import type { Logger } from '../utils/logger';
 import DOMPurify from 'dompurify';
 import { JSDOM } from 'jsdom';
-import { marked } from 'marked';
 
 const window = new JSDOM('').window;
-const purify = DOMPurify(window);
+DOMPurify(window);
 
 interface ChatMessage {
     id: string;
@@ -155,7 +154,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    updateCommands(commands: any[]): void {
+    updateCommands(_commands: any[]): void {
         // Update available commands in UI
         this.refresh();
     }
@@ -241,11 +240,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async pickSkill(): Promise<void> {
+    private pickSkill(): void {
         vscode.commands.executeCommand('hermes.pickSkill');
     }
 
-    private async switchModel(): Promise<void> {
+    private switchModel(): void {
         vscode.commands.executeCommand('hermes.switchModel');
     }
 

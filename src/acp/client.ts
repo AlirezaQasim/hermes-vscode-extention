@@ -1,6 +1,5 @@
 import { EventEmitter } from 'events';
-import { spawn, ChildProcess } from 'child_process';
-import { v4 as uuidv4 } from 'uuid';
+import { spawn, type ChildProcess } from 'child_process';
 import { Logger } from '../utils/logger';
 
 export interface ACPClientConfig {
@@ -319,13 +318,13 @@ export class HermesACPClient extends EventEmitter {
         return response.sessions || [];
     }
 
-    async getAvailableModels(sessionId: string): Promise<any[]> {
+    async getAvailableModels(_sessionId: string): Promise<any[]> {
         // This would be available from session creation or a models endpoint
         // For now, return empty - models are in the session response
         return [];
     }
 
-    async getAvailableProviders(sessionId: string): Promise<any[]> {
+    async getAvailableProviders(_sessionId: string): Promise<any[]> {
         return [];
     }
 
@@ -336,12 +335,12 @@ export class HermesACPClient extends EventEmitter {
         });
     }
 
-    async setProvider(sessionId: string, providerId: string): Promise<void> {
+    async setProvider(_sessionId: string, providerId: string): Promise<void> {
         // Provider switching might be done via model string (provider:model)
-        await this.setModel(sessionId, providerId);
+        await this.setModel(_sessionId, providerId);
     }
 
-    async getTokenUsage(sessionId: string): Promise<ACPTokenUsage | null> {
+    async getTokenUsage(_sessionId: string): Promise<ACPTokenUsage | null> {
         // Would need a specific method or get from session updates
         return null;
     }

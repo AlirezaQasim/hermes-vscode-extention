@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { Logger } from '../utils/logger';
+import type { Logger } from '../utils/logger';
 
 export class FileSystemHandler {
     private logger: Logger;
@@ -9,7 +9,7 @@ export class FileSystemHandler {
     }
 
     async handleToolCall(toolCall: any): Promise<void> {
-        const { name, args, kind } = toolCall;
+        const { args, kind } = toolCall;
 
         switch (kind) {
             case 'read':
@@ -151,7 +151,7 @@ export class FileSystemHandler {
         try {
             const uri = vscode.Uri.file(dirPath);
             const entries = await vscode.workspace.fs.readDirectory(uri);
-            return entries.map(([name, type]) => name);
+            return entries.map(([name]) => name);
         } catch (error) {
             this.logger.error('Failed to list files', error);
             return [];

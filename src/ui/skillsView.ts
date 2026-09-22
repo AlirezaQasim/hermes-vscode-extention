@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Logger } from '../utils/logger';
+import type { Logger } from '../utils/logger';
 
 interface SkillInfo {
     name: string;
@@ -127,7 +127,7 @@ export class SkillsViewProvider implements vscode.TreeDataProvider<SkillItem> {
         return Promise.resolve([]);
     }
 
-    getParent(element: SkillItem): vscode.ProviderResult<SkillItem> {
+    getParent(_element: SkillItem): vscode.ProviderResult<SkillItem> {
         return null;
     }
 }

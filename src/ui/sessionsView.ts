@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { Logger } from '../utils/logger';
+import type { Logger } from '../utils/logger';
 
 interface SessionInfo {
     sessionId: string;
@@ -40,7 +40,7 @@ export class SessionsViewProvider implements vscode.TreeDataProvider<SessionItem
         return Promise.resolve([]);
     }
 
-    getParent(element: SessionItem): vscode.ProviderResult<SessionItem> {
+    getParent(_element: SessionItem): vscode.ProviderResult<SessionItem> {
         return null;
     }
 }

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { Logger } from '../utils/logger';
+import type { Logger } from '../utils/logger';
 
 interface ToolInfo {
     name: string;
@@ -60,7 +60,7 @@ export class ToolsViewProvider implements vscode.TreeDataProvider<ToolItem> {
         return Promise.resolve([]);
     }
 
-    getParent(element: ToolItem): vscode.ProviderResult<ToolItem> {
+    getParent(_element: ToolItem): vscode.ProviderResult<ToolItem> {
         return null;
     }
 }
