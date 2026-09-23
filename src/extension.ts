@@ -4,6 +4,7 @@ import { ChatViewProvider } from './ui/chatView';
 import { SessionsViewProvider } from './ui/sessionsView';
 import { SkillsViewProvider } from './ui/skillsView';
 import { ToolsViewProvider } from './ui/toolsView';
+import { SetupViewProvider } from './ui/setupView';
 import { StatusBarManager } from './ui/statusBar';
 import { ConfigManager } from './config/manager';
 import { SessionManager } from './handlers/sessionManager';
@@ -18,6 +19,7 @@ export interface ExtensionContext {
     sessionsProvider: SessionsViewProvider;
     skillsProvider: SkillsViewProvider;
     toolsProvider: ToolsViewProvider;
+    setupProvider: SetupViewProvider;
     statusBar: StatusBarManager;
     config: ConfigManager;
     sessionManager: SessionManager;
@@ -54,11 +56,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const sessionsProvider = new SessionsViewProvider(context, logger);
     const skillsProvider = new SkillsViewProvider(context, logger);
     const toolsProvider = new ToolsViewProvider(context, logger);
+    const setupProvider = new SetupViewProvider(context, logger);
 
     vscode.window.registerWebviewViewProvider('hermes.chat', chatProvider);
     vscode.window.registerTreeDataProvider('hermes.sessions', sessionsProvider);
     vscode.window.registerTreeDataProvider('hermes.skills', skillsProvider);
     vscode.window.registerTreeDataProvider('hermes.tools', toolsProvider);
+    vscode.window.registerWebviewViewProvider('hermes.setup', setupProvider);
 
     extensionContext = {
         client: null,
@@ -66,6 +70,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         sessionsProvider,
         skillsProvider,
         toolsProvider,
+        setupProvider,
         statusBar,
         config,
         sessionManager,
@@ -122,6 +127,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }),
         vscode.commands.registerCommand('hermes.checkACP', async () => {
             await checkACPDependencies();
+        }),
+        vscode.commands.registerCommand('hermes.loadSession', async (sessionId: string) => {
+            await loadSession(sessionId);
         })
     );
 
@@ -136,6 +144,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         })
     );
 
+    // Initialize session manager (check for existing Hermes database)
+    await sessionManager.initialize();
+
+    // Auto-connect if enabled
     if (config.get('enabled', true)) {
         await connectToHermes();
     }
@@ -166,7 +178,7 @@ async function connectToHermes(): Promise<void> {
             logLevel: ctx.config.get('logLevel', 'info')
         });
 
-        client.on('connected', () => {
+        client.on('connected', async () => {
             ctx.isConnected = true;
             ctx.currentSessionId = null;
             ctx.statusBar.setConnected();
@@ -174,6 +186,9 @@ async function connectToHermes(): Promise<void> {
             ctx.sessionsProvider.refresh();
             vscode.commands.executeCommand('setContext', 'hermes.isConnected', true);
             ctx.logger.info('Connected to Hermes ACP server');
+
+            // Load existing sessions from Hermes CLI/database
+            await loadExistingSessions();
         });
 
         client.on('disconnected', (reason: string) => {
@@ -216,12 +231,81 @@ async function connectToHermes(): Promise<void> {
         await client.connect();
         ctx.client = client;
 
-        await createNewSession();
-
     } catch (error) {
         ctx.logger.error('Failed to connect to Hermes', error);
         ctx.statusBar.setError(String(error));
         vscode.window.showErrorMessage(`Failed to connect to Hermes: ${error}`);
+    }
+}
+
+async function loadExistingSessions(): Promise<void> {
+    const ctx = getExtensionContext();
+    if (!ctx || !ctx.client) return;
+
+    try {
+        const sessions = await ctx.client.listSessions();
+        if (sessions && sessions.length > 0) {
+            ctx.logger.info(`Found ${sessions.length} existing Hermes sessions`);
+            
+            // Load sessions into session manager
+            for (const session of sessions) {
+                ctx.sessionManager.loadSessionFromACP({
+                    id: session.sessionId,
+                    title: session.title,
+                    preview: session.preview,
+                    model: session.model,
+                    cwd: session.cwd,
+                    messageCount: session.historyLen,
+                    createdAt: new Date(session.updatedAt).getTime(),
+                    updatedAt: new Date(session.updatedAt).getTime()
+                });
+            }
+            
+            ctx.sessionsProvider.setSessions(sessions);
+            ctx.sessionsProvider.refresh();
+            
+            // Auto-load the most recent session
+            const latestSession = sessions[0];
+            if (latestSession && !ctx.currentSessionId) {
+                await loadSession(latestSession.sessionId);
+            }
+        } else {
+            ctx.logger.info('No existing Hermes sessions found, creating new one');
+            await createNewSession();
+        }
+    } catch (error) {
+        ctx.logger.error('Failed to load existing sessions', error);
+        // Fallback to creating new session
+        await createNewSession();
+    }
+}
+
+async function loadSession(sessionId: string): Promise<void> {
+    const ctx = getExtensionContext();
+    if (!ctx || !ctx.client) return;
+
+    try {
+        ctx.logger.info('Loading session', sessionId);
+        ctx.statusBar.setConnecting();
+        
+        const cwd = ctx.config.get('cwd', vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd());
+        const session = await ctx.client.loadSession(sessionId, cwd);
+        
+        if (session) {
+            ctx.currentSessionId = session.sessionId;
+            ctx.sessionManager.setCurrentSession(session.sessionId);
+            ctx.chatProvider.setSession(session.sessionId);
+            ctx.sessionsProvider.refresh();
+            ctx.statusBar.setSession(session.sessionId);
+            ctx.logger.info('Loaded session', sessionId);
+            
+            // The session history will be streamed via sessionUpdate notifications
+        } else {
+            vscode.window.showErrorMessage(`Session ${sessionId} not found`);
+        }
+    } catch (error) {
+        ctx.logger.error('Failed to load session', error);
+        vscode.window.showErrorMessage(`Failed to load session: ${error}`);
     }
 }
 
