@@ -5,6 +5,7 @@ import { SessionsViewProvider } from './ui/sessionsView';
 import { SkillsViewProvider } from './ui/skillsView';
 import { ToolsViewProvider } from './ui/toolsView';
 import { SetupViewProvider } from './ui/setupView';
+import { ConfigViewProvider, ConnectionsViewProvider } from './ui/configView';
 import { StatusBarManager } from './ui/statusBar';
 import { ConfigManager } from './config/manager';
 import { SessionManager } from './handlers/sessionManager';
@@ -20,6 +21,8 @@ export interface ExtensionContext {
     skillsProvider: SkillsViewProvider;
     toolsProvider: ToolsViewProvider;
     setupProvider: SetupViewProvider;
+    configProvider: ConfigViewProvider;
+    connectionsProvider: ConnectionsViewProvider;
     statusBar: StatusBarManager;
     config: ConfigManager;
     sessionManager: SessionManager;
@@ -57,12 +60,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const skillsProvider = new SkillsViewProvider(context, logger);
     const toolsProvider = new ToolsViewProvider(context, logger);
     const setupProvider = new SetupViewProvider(context, logger);
+    const configProvider = new ConfigViewProvider(logger);
+    const connectionsProvider = new ConnectionsViewProvider(logger);
 
     vscode.window.registerWebviewViewProvider('hermes.chat', chatProvider);
     vscode.window.registerTreeDataProvider('hermes.sessions', sessionsProvider);
     vscode.window.registerTreeDataProvider('hermes.skills', skillsProvider);
     vscode.window.registerTreeDataProvider('hermes.tools', toolsProvider);
     vscode.window.registerWebviewViewProvider('hermes.setup', setupProvider);
+    vscode.window.registerTreeDataProvider('hermes.config', configProvider);
+    vscode.window.registerTreeDataProvider('hermes.connections', connectionsProvider);
 
     extensionContext = {
         client: null,
@@ -71,6 +78,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         skillsProvider,
         toolsProvider,
         setupProvider,
+        configProvider,
+        connectionsProvider,
         statusBar,
         config,
         sessionManager,
@@ -210,10 +219,6 @@ async function connectToHermes(): Promise<void> {
 
         client.on('toolCall', (toolCall) => {
             handleToolCall(toolCall);
-        });
-
-        client.on('message', (message) => {
-            ctx.chatProvider.addMessage(message);
         });
 
         client.on('tokenUsage', (usage) => {

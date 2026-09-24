@@ -178,12 +178,34 @@ export class HermesACPClient extends EventEmitter {
     }
 
     async disconnect(): Promise<void> {
+        // Reject all pending requests
+        for (const [, { reject }] of this.pendingRequests) {
+            reject(new Error('Disconnected'));
+        }
+        this.pendingRequests.clear();
+
         if (this.process) {
             this.process.kill('SIGTERM');
+            // Wait for process to actually exit
+            await new Promise<void>((resolve) => {
+                if (!this.process) {
+                    resolve();
+                    return;
+                }
+                this.process.on('exit', () => resolve());
+                // Force kill after 2 seconds
+                setTimeout(() => {
+                    if (this.process) {
+                        this.process.kill('SIGKILL');
+                    }
+                    resolve();
+                }, 2000);
+            });
             this.process = null;
         }
         this.isConnected = false;
         this.currentSessionId = null;
+        this.emit('disconnected', 'Disconnected by user');
     }
 
     private handleStdout(data: string): void {
@@ -229,9 +251,7 @@ export class HermesACPClient extends EventEmitter {
             case 'tool/call':
                 this.emit('toolCall', params);
                 break;
-            case 'message':
-                this.emit('message', params);
-                break;
+            case 'token/usage':
             case 'usage/update':
                 this.emit('tokenUsage', params);
                 break;
@@ -292,7 +312,30 @@ export class HermesACPClient extends EventEmitter {
         if (response) {
             this.currentSessionId = response.sessionId;
         }
+        
+        // Wait for history replay to complete (signaled by 'history_end' notification or timeout)
+        await this.waitForHistoryReplay();
+        
         return response;
+    }
+
+    private waitForHistoryReplay(): Promise<void> {
+        return new Promise((resolve) => {
+            // Listen for history_end notification from ACP
+            const handler = (update: any) => {
+                if (update.kind === 'history_end' || update.kind === 'history_complete') {
+                    this.off('sessionUpdate', handler);
+                    resolve();
+                }
+            };
+            this.on('sessionUpdate', handler);
+            
+            // Fallback timeout - history replay should complete within 10 seconds
+            setTimeout(() => {
+                this.off('sessionUpdate', handler);
+                resolve();
+            }, 10000);
+        });
     }
 
     async sendPrompt(sessionId: string, prompt: string): Promise<void> {
@@ -346,16 +389,19 @@ export class HermesACPClient extends EventEmitter {
     }
 
     async injectSkills(sessionId: string, skillNames: string[]): Promise<void> {
-        // Inject skills as a steer command or via session config
-        await this.sendRequest('session/prompt', {
-            sessionId,
-            prompt: [
-                {
-                    type: 'text',
-                    text: `/skill ${skillNames.join(' ')}`
+        // Use the proper ACP method for skill injection if available
+        // Fallback to steer command for older Hermes versions
+        try {
+            await this.sendRequest('session/configure', {
+                sessionId,
+                config: {
+                    skills: skillNames
                 }
-            ]
-        });
+            });
+        } catch {
+            // Fallback: send as a steer command
+            await this.sendPrompt(sessionId, `/skill ${skillNames.join(' ')}`);
+        }
     }
 
     on(event: 'connected', listener: () => void): this;
@@ -363,7 +409,6 @@ export class HermesACPClient extends EventEmitter {
     on(event: 'sessionUpdate', listener: (update: ACPSessionUpdate) => void): this;
     on(event: 'permissionRequest', listener: (request: ACPPermissionRequest) => void): this;
     on(event: 'toolCall', listener: (toolCall: ACPToolCall) => void): this;
-    on(event: 'message', listener: (message: any) => void): this;
     on(event: 'tokenUsage', listener: (usage: ACPTokenUsage) => void): this;
     on(event: 'error', listener: (error: Error) => void): this;
     on(event: string, listener: (...args: any[]) => void): this {
@@ -375,7 +420,6 @@ export class HermesACPClient extends EventEmitter {
     emit(event: 'sessionUpdate', update: ACPSessionUpdate): boolean;
     emit(event: 'permissionRequest', request: ACPPermissionRequest): boolean;
     emit(event: 'toolCall', toolCall: ACPToolCall): boolean;
-    emit(event: 'message', message: any): boolean;
     emit(event: 'tokenUsage', usage: ACPTokenUsage): boolean;
     emit(event: 'error', error: Error): boolean;
     emit(event: string, ...args: any[]): boolean {
