@@ -37,7 +37,35 @@
     "onView:hermes.setup"
   ],
   "main": "./out/extension.js",
+  "enableProposedApi": true,
   "contributes": {
+    "chatParticipants": [
+      {
+        "id": "hermes.agent",
+        "name": "hermes",
+        "fullName": "Hermes Agent",
+        "description": "AI coding agent with persistent memory, skills, and multi-platform messaging via ACP",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "new",
+            "description": "Start a new Hermes session"
+          },
+          {
+            "name": "model",
+            "description": "Switch model/provider"
+          },
+          {
+            "name": "skills",
+            "description": "Pick skills for this session"
+          },
+          {
+            "name": "approve",
+            "description": "Toggle auto-approve permissions"
+          }
+        ]
+      }
+    ],
     "views": {
       "hermes": [
         {

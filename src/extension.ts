@@ -13,6 +13,8 @@ import { PermissionHandler } from './handlers/permissionHandler';
 import { FileSystemHandler } from './handlers/fileSystemHandler';
 import { TerminalHandler } from './handlers/terminalHandler';
 import { Logger } from './utils/logger';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface ExtensionContext {
     client: HermesACPClient | null;
@@ -155,6 +157,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Initialize session manager (check for existing Hermes database)
     await sessionManager.initialize();
+
+    // Register chat participant (enterprise integration)
+    await registerChatParticipant(context);
 
     // Auto-connect if enabled
     if (config.get('enabled', true)) {
@@ -571,5 +576,88 @@ function handleToolCall(toolCall: any): void {
         case 'bash':
             ctx.terminalHandler.handleToolCall(toolCall);
             break;
+    }
+}
+
+// ============================================
+// Chat Participant Implementation (Enterprise)
+// ============================================
+
+let hermesChatParticipant: vscode.ChatParticipant | null = null;
+
+export function getHermesChatParticipant(): vscode.ChatParticipant | null {
+    return hermesChatParticipant;
+}
+
+async function registerChatParticipant(context: vscode.ExtensionContext): Promise<void> {
+    const logger = new Logger('HermesChatParticipant');
+    
+    hermesChatParticipant = vscode.chat.createChatParticipant('hermes.agent', async (request, context, stream, token) => {
+        const ctx = getExtensionContext();
+        if (!ctx || !ctx.client || !ctx.currentSessionId) {
+            stream.markdown('⚠️ **Not connected to Hermes**. Run "Hermes: Connect" first.');
+            return;
+        }
+
+        try {
+            // Handle slash commands
+            if (request.command) {
+                await handleChatCommand(request.command, request, ctx, stream, token);
+                return;
+            }
+
+            // Send prompt to Hermes
+            await ctx.client.sendPrompt(ctx.currentSessionId, request.prompt);
+            
+            // The response will come via sessionUpdate notifications
+            // We need to stream the response back
+            stream.progress('Hermes is thinking...');
+            
+        } catch (error) {
+            logger.error('Chat participant error', error);
+            stream.markdown(`❌ Error: ${error}`);
+        }
+    });
+
+    // Set participant properties
+    hermesChatParticipant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'resources', 'hermes-icon.svg');
+    
+    // Note: Followup provider requires proposed API, skip for now
+    // context.subscriptions.push(
+    //     vscode.chat.registerFollowupProvider('hermes.agent', {
+    //         provideFollowups: async (_result: any, _context: any, _token: vscode.CancellationToken) => {
+    //             return [
+    //                 { prompt: 'Continue', label: 'Continue the conversation' },
+    //                 { prompt: '/new', label: 'Start new session' },
+    //                 { prompt: '/model', label: 'Switch model' },
+    //                 { prompt: '/skills', label: 'Pick skills' }
+    //             ];
+    //         }
+    //     })
+    // );
+    
+    logger.info('Hermes chat participant registered');
+}
+
+async function handleChatCommand(command: string, request: vscode.ChatRequest, ctx: any, stream: vscode.ChatResponseStream, token: vscode.CancellationToken): Promise<void> {
+    switch (command) {
+        case 'new':
+            await createNewSession();
+            stream.markdown('✅ **New session created**');
+            break;
+        case 'model':
+            await switchModel();
+            stream.markdown('🔄 **Model switched**');
+            break;
+        case 'skills':
+            await pickSkills();
+            stream.markdown('🧠 **Skills updated**');
+            break;
+        case 'approve':
+            await toggleAutoApprove();
+            stream.markdown(`🛡️ **Auto-approve ${ctx.config.get('autoApprovePermissions') ? 'enabled' : 'disabled'}**`);
+            break;
+        default:
+            stream.markdown(`Unknown command: /${command}`);
     }
 }
