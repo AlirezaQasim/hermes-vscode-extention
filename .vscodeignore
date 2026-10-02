@@ -25,3 +25,4 @@ Thumbs.db
 .nyc_output/
 coverage/
 .vscode-test/
+esbuild.config.js

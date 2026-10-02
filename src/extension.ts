@@ -34,6 +34,7 @@ export interface ExtensionContext {
     logger: Logger;
     isConnected: boolean;
     currentSessionId: string | null;
+    chatParticipantStream: vscode.ChatResponseStream | null;
 }
 
 let extensionContext: ExtensionContext | null = null;
@@ -90,7 +91,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         terminalHandler,
         logger,
         isConnected: false,
-        currentSessionId: null
+        currentSessionId: null,
+        chatParticipantStream: null
     };
 
     context.subscriptions.push(
@@ -328,6 +330,8 @@ async function disconnectFromHermes(): Promise<void> {
         ctx.client = null;
         ctx.isConnected = false;
         ctx.currentSessionId = null;
+        ctx.chatParticipantStream = null;
+        currentChatStream = null;
         ctx.statusBar.setDisconnected('Disconnected by user');
         ctx.chatProvider.setConnected(false);
         vscode.commands.executeCommand('setContext', 'hermes.isConnected', false);
@@ -531,24 +535,42 @@ function handleSessionUpdate(update: any): void {
     const ctx = getExtensionContext();
     if (!ctx) return;
 
+    // Route to chat participant stream if active
+    const chatStream = ctx.chatParticipantStream || currentChatStream;
+    
     switch (update.kind) {
         case 'agent_message_chunk':
             ctx.chatProvider.addAgentChunk(update.content);
+            if (chatStream) {
+                chatStream.markdown(update.content);
+            }
             break;
         case 'user_message_chunk':
             ctx.chatProvider.addUserChunk(update.content);
             break;
         case 'thought_chunk':
             ctx.chatProvider.addThoughtChunk(update.content);
+            if (chatStream) {
+                chatStream.markdown(`_Thinking: ${update.content}_`);
+            }
             break;
         case 'tool_call':
             ctx.chatProvider.addToolCall(update);
+            if (chatStream) {
+                chatStream.markdown(`🔧 **Tool: ${update.name}**\n\`\`\`json\n${JSON.stringify(update.args, null, 2)}\n\`\`\``);
+            }
             break;
         case 'tool_call_update':
             ctx.chatProvider.updateToolCall(update);
+            if (chatStream && update.status === 'done') {
+                chatStream.markdown(`✅ **Tool completed**${update.result ? `\n\`\`\`\n${update.result}\n\`\`\`` : ''}${update.error ? `\n❌ ${update.error}` : ''}`);
+            }
             break;
         case 'plan':
             ctx.chatProvider.addPlan(update.content);
+            if (chatStream) {
+                chatStream.markdown(`📋 **Plan:**\n${update.content}`);
+            }
             break;
         case 'available_commands_update':
             ctx.chatProvider.updateCommands(update.commands);
@@ -584,6 +606,7 @@ function handleToolCall(toolCall: any): void {
 // ============================================
 
 let hermesChatParticipant: vscode.ChatParticipant | null = null;
+let currentChatStream: vscode.ChatResponseStream | null = null;
 
 export function getHermesChatParticipant(): vscode.ChatParticipant | null {
     return hermesChatParticipant;
@@ -592,12 +615,16 @@ export function getHermesChatParticipant(): vscode.ChatParticipant | null {
 async function registerChatParticipant(context: vscode.ExtensionContext): Promise<void> {
     const logger = new Logger('HermesChatParticipant');
     
-    hermesChatParticipant = vscode.chat.createChatParticipant('hermes.agent', async (request, context, stream, token) => {
+    hermesChatParticipant = vscode.chat.createChatParticipant('hermes.agent', async (request, _context, stream, token) => {
         const ctx = getExtensionContext();
         if (!ctx || !ctx.client || !ctx.currentSessionId) {
             stream.markdown('⚠️ **Not connected to Hermes**. Run "Hermes: Connect" first.');
             return;
         }
+
+        // Store stream reference for sessionUpdate routing
+        currentChatStream = stream;
+        ctx.chatParticipantStream = stream;
 
         try {
             // Handle slash commands
@@ -609,37 +636,27 @@ async function registerChatParticipant(context: vscode.ExtensionContext): Promis
             // Send prompt to Hermes
             await ctx.client.sendPrompt(ctx.currentSessionId, request.prompt);
             
-            // The response will come via sessionUpdate notifications
-            // We need to stream the response back
-            stream.progress('Hermes is thinking...');
+            // Wait for response via sessionUpdate events
+            // The response will be streamed through handleSessionUpdate
             
         } catch (error) {
             logger.error('Chat participant error', error);
             stream.markdown(`❌ Error: ${error}`);
+        } finally {
+            currentChatStream = null;
+            if (ctx) {
+                ctx.chatParticipantStream = null;
+            }
         }
     });
 
     // Set participant properties
     hermesChatParticipant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'resources', 'hermes-icon.svg');
     
-    // Note: Followup provider requires proposed API, skip for now
-    // context.subscriptions.push(
-    //     vscode.chat.registerFollowupProvider('hermes.agent', {
-    //         provideFollowups: async (_result: any, _context: any, _token: vscode.CancellationToken) => {
-    //             return [
-    //                 { prompt: 'Continue', label: 'Continue the conversation' },
-    //                 { prompt: '/new', label: 'Start new session' },
-    //                 { prompt: '/model', label: 'Switch model' },
-    //                 { prompt: '/skills', label: 'Pick skills' }
-    //             ];
-    //         }
-    //     })
-    // );
-    
     logger.info('Hermes chat participant registered');
 }
 
-async function handleChatCommand(command: string, request: vscode.ChatRequest, ctx: any, stream: vscode.ChatResponseStream, token: vscode.CancellationToken): Promise<void> {
+async function handleChatCommand(command: string, request: vscode.ChatRequest, ctx: any, stream: vscode.ChatResponseStream, _token: vscode.CancellationToken): Promise<void> {
     switch (command) {
         case 'new':
             await createNewSession();

@@ -126,15 +126,63 @@ export class SetupViewProvider implements vscode.WebviewViewProvider {
     }
 
     private getHtml(): string {
-        const scriptUri = this.view?.webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, 'out', 'ui', 'setupView.js')
-        ) || '';
-
-        const styleUri = this.view?.webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, 'out', 'ui', 'setupView.css')
-        ) || '';
-
         const nonce = this.getNonce();
+
+        // Inline CSS
+        const css = `
+.container{padding:16px;font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);color:var(--vscode-foreground)}
+h1{font-size:1.4em;margin-bottom:16px;color:var(--vscode-foreground)}
+h2{font-size:1.1em;margin:20px 0 12px;color:var(--vscode-foreground);border-bottom:1px solid var(--vscode-panel-border);padding-bottom:4px}
+.section{margin-bottom:20px}
+.buttons{display:flex;flex-direction:column;gap:8px}
+button{padding:10px 16px;border:none;border-radius:4px;cursor:pointer;font-size:13px;font-weight:500;transition:background-color 0.2s}
+button.primary{background-color:var(--vscode-button-background);color:var(--vscode-button-foreground)}
+button.primary:hover{background-color:var(--vscode-button-hoverBackground)}
+button:not(.primary){background-color:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground)}
+button:not(.primary):hover{background-color:var(--vscode-button-secondaryHoverBackground)}
+button:disabled{opacity:0.5;cursor:not-allowed}
+.status{padding:12px;border-radius:6px;margin-bottom:16px;font-weight:500}
+.status.checking{background-color:var(--vscode-editorInfo-background);color:var(--vscode-editorInfo-foreground)}
+.status.configured{background-color:var(--vscode-testing-iconPassed);color:var(--vscode-editor-background)}
+.status.not-configured{background-color:var(--vscode-editorWarning-background);color:var(--vscode-editorWarning-foreground)}
+.status.error{background-color:var(--vscode-editorError-background);color:var(--vscode-editorError-foreground)}
+.info code{background-color:var(--vscode-textCodeBlock-background);padding:2px 6px;border-radius:3px;font-family:var(--vscode-editor-font-family);font-size:0.9em}
+ul{margin:8px 0;padding-left:20px}
+li{margin:4px 0;line-height:1.5}
+`;
+
+        // Inline JavaScript
+        const js = `
+const vscode = acquireVsCodeApi();
+
+document.addEventListener('click', e => {
+    const target = e.target;
+    if (target.id === 'btn-run-setup') vscode.postMessage({ type: 'runSetup' });
+    else if (target.id === 'btn-check-config') vscode.postMessage({ type: 'checkConfig' });
+    else if (target.id === 'btn-open-config') vscode.postMessage({ type: 'openConfigFile' });
+    else if (target.id === 'btn-open-env') vscode.postMessage({ type: 'openEnvFile' });
+});
+
+window.addEventListener('message', event => {
+    const message = event.data;
+    if (message.type === 'update') {
+        const statusEl = document.getElementById('status');
+        if (statusEl) {
+            let statusHtml = '';
+            if (message.configStatus === 'checking') {
+                statusHtml = '<div class="status checking">🔄 Checking configuration...</div>';
+            } else if (message.configStatus === 'configured') {
+                statusHtml = '<div class="status configured">✅ Hermes is configured</div>';
+            } else if (message.configStatus === 'not_configured') {
+                statusHtml = '<div class="status not-configured">⚠️ Hermes not configured</div>';
+            } else {
+                statusHtml = '<div class="status error">❌ Error checking configuration</div>';
+            }
+            statusEl.innerHTML = statusHtml;
+        }
+    }
+});
+`;
 
         let statusHtml = '';
         if (this.configStatus === 'checking') {
@@ -153,7 +201,7 @@ export class SetupViewProvider implements vscode.WebviewViewProvider {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.view?.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-    <link href="${styleUri}" rel="stylesheet">
+    <style nonce="${nonce}">${css}</style>
     <title>Hermes Setup</title>
 </head>
 <body>
@@ -195,7 +243,7 @@ export class SetupViewProvider implements vscode.WebviewViewProvider {
             </ul>
         </div>
     </div>
-    <script nonce="${nonce}" src="${scriptUri}"></script>
+    <script nonce="${nonce}">${js}</script>
 </body>
 </html>`;
     }

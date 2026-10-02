@@ -261,58 +261,64 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     private getHtml(): string {
-        const scriptUri = this.view?.webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, 'out', 'ui', 'chatView.js')
-        ) || '';
-
-        const styleUri = this.view?.webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, 'out', 'ui', 'chatView.css')
-        ) || '';
-
         const nonce = this.getNonce();
+        const css = this.getCss();
+        const js = this.getJs();
 
-        return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.view?.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${this.view?.webview.cspSource} data: https:; font-src ${this.view?.webview.cspSource};">
-    <link href="${styleUri}" rel="stylesheet">
-    <title>Hermes Chat</title>
-</head>
-<body>
-    <div id="chat-container">
-        <div id="header" class="${this.connected ? 'connected' : 'disconnected'}">
-            <div class="status">
-                <span class="indicator"></span>
-                <span class="text">${this.connected ? 'Connected' : 'Disconnected'}</span>
-            </div>
-            <div class="session-info">
-                ${this.currentSessionId ? `<span class="session-id">${this.currentSessionId.slice(0, 8)}...</span>` : ''}
-                ${this.tokenUsage ? `<span class="tokens">${this.tokenUsage.total} tokens</span>` : ''}
-            </div>
-        </div>
-        <div id="messages" class="messages"></div>
-        <div id="composer" class="composer">
-            <div class="composer-toolbar">
-                <button id="btn-new-session" title="New Session" ${!this.connected ? 'disabled' : ''}>+</button>
-                <button id="btn-skill" title="Pick Skills" ${!this.connected ? 'disabled' : ''}>🔧</button>
-                <button id="btn-model" title="Switch Model" ${!this.connected ? 'disabled' : ''}>🤖</button>
-                <button id="btn-cancel" title="Cancel Turn" ${!this.connected ? 'disabled' : ''}>⏹</button>
-                <button id="btn-clear" title="Clear History">🗑</button>
-            </div>
-            <div class="input-area">
-                <textarea id="prompt-input" placeholder="${this.connected ? 'Type your message...' : 'Connect to Hermes first'}" ${!this.connected ? 'disabled' : ''}></textarea>
-                <button id="btn-send" ${!this.connected ? 'disabled' : ''}>Send</button>
-            </div>
-        </div>
-    </div>
-    <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`;
-    }
+        const connectedClass = this.connected ? 'connected' : 'disconnected';
+        const connectedText = this.connected ? 'Connected' : 'Disconnected';
+        const sessionIdHtml = this.currentSessionId ? '<span class="session-id">' + this.currentSessionId.slice(0, 8) + '...</span>' : '';
+        const tokenUsageHtml = this.tokenUsage ? '<span class="tokens">' + this.tokenUsage.total + ' tokens</span>' : '';
+        const promptPlaceholder = this.connected ? 'Type your message...' : 'Connect to Hermes first';
+        const disabledAttr = this.connected ? '' : 'disabled';
 
-    private getNonce(): string {
+        return '<!DOCTYPE html>' +
+            '<html lang="en">' +
+            '<head>' +
+            '<meta charset="UTF-8">' +
+            '<meta name="viewport" content="width=device-width, initial-scale=1.0">' +
+            '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src " + this.view?.webview.cspSource + " \'unsafe-inline\'; script-src \'nonce-" + nonce + "\' https://cdn.jsdelivr.net; img-src " + this.view?.webview.cspSource + " data: https:; font-src " + this.view?.webview.cspSource + ";">' +
+            '<style nonce="' + nonce + '">' + css + '</style>' +
+            '<script nonce="' + nonce + '" src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>' +
+            '<script nonce="' + nonce + '" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>' +
+            '<script nonce="' + nonce + '" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/typescript.min.js"></script>' +
+            '<script nonce="' + nonce + '" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/python.min.js"></script>' +
+            '<script nonce="' + nonce + '" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/javascript.min.js"></script>' +
+            '<script nonce="' + nonce + '" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/json.min.js"></script>' +
+            '<script nonce="' + nonce + '" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/bash.min.js"></script>' +
+            '<title>Hermes Chat</title>' +
+            '</head>' +
+            '<body>' +
+            '<div id="chat-container">' +
+            '<div id="header" class="' + connectedClass + '">' +
+            '<div class="status">' +
+            '<span class="indicator"></span>' +
+            '<span class="text">' + connectedText + '</span>' +
+            '</div>' +
+            '<div class="session-info">' +
+            sessionIdHtml +
+            tokenUsageHtml +
+            '</div>' +
+            '</div>' +
+            '<div id="messages" class="messages"></div>' +
+            '<div id="composer" class="composer">' +
+            '<div class="composer-toolbar">' +
+            '<button id="btn-new-session" title="New Session" ' + disabledAttr + '>+</button>' +
+            '<button id="btn-skill" title="Pick Skills" ' + disabledAttr + '>🔧</button>' +
+            '<button id="btn-model" title="Switch Model" ' + disabledAttr + '>🤖</button>' +
+            '<button id="btn-cancel" title="Cancel Turn" ' + disabledAttr + '>⏹</button>' +
+            '<button id="btn-clear" title="Clear History">🗑</button>' +
+            '</div>' +
+            '<div class="input-area">' +
+            '<textarea id="prompt-input" placeholder="' + promptPlaceholder + '" ' + disabledAttr + '></textarea>' +
+            '<button id="btn-send" ' + disabledAttr + '>Send</button>' +
+            '</div>' +
+            '</div>' +
+            '</div>' +
+            '<script nonce="' + nonce + '">' + js + '</script>' +
+            '</body>' +
+            '</html>';
+    }    private getNonce(): string {
         let text = '';
         const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
         for (let i = 0; i < 32; i++) {
