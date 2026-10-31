@@ -205,6 +205,28 @@ async function connectToHermes(): Promise<void> {
 
             // Load existing sessions from Hermes CLI/database
             await loadExistingSessions();
+
+            // Auto-create a session if none exists
+            const sessions = ctx.sessionManager.getSessions();
+            if (sessions.length === 0) {
+                ctx.logger.info('No existing sessions found, creating new session...');
+                try {
+                    const cwd = ctx.config.get('cwd', vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd());
+                    const session = await ctx.client.createSession(cwd);
+                    ctx.currentSessionId = session.sessionId;
+                    ctx.chatProvider.setSession(session.sessionId);
+                    ctx.sessionsProvider.refresh();
+                    ctx.logger.info(`Created new session: ${session.sessionId}`);
+                } catch (error) {
+                    ctx.logger.error('Failed to auto-create session', error);
+                }
+            } else {
+                // Load the most recent session
+                const latestSession = sessions[0];
+                ctx.currentSessionId = latestSession.id;
+                ctx.chatProvider.setSession(latestSession.id);
+                ctx.logger.info(`Loaded existing session: ${latestSession.id}`);
+            }
         });
 
         client.on('disconnected', (reason: string) => {
@@ -616,30 +638,46 @@ async function registerChatParticipant(context: vscode.ExtensionContext): Promis
     const logger = new Logger('HermesChatParticipant');
     
     hermesChatParticipant = vscode.chat.createChatParticipant('hermes.agent', async (request, _context, stream, token) => {
-        const ctx = getExtensionContext();
-        if (!ctx || !ctx.client || !ctx.currentSessionId) {
-            stream.markdown('⚠️ **Not connected to Hermes**. Run "Hermes: Connect" first.');
-            return;
-        }
-
-        // Store stream reference for sessionUpdate routing
-        currentChatStream = stream;
-        ctx.chatParticipantStream = stream;
-
-        try {
-            // Handle slash commands
-            if (request.command) {
-                await handleChatCommand(request.command, request, ctx, stream, token);
+            const ctx = getExtensionContext();
+            if (!ctx || !ctx.client) {
+                stream.markdown('⚠️ **Not connected to Hermes**. Run "Hermes: Connect" first.');
                 return;
             }
 
-            // Send prompt to Hermes
-            await ctx.client.sendPrompt(ctx.currentSessionId, request.prompt);
+            // Auto-create session if needed
+            if (!ctx.currentSessionId) {
+                stream.progress('Creating new session...');
+                try {
+                    const cwd = ctx.config.get('cwd', vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd());
+                    const session = await ctx.client.createSession(cwd);
+                    ctx.currentSessionId = session.sessionId;
+                    ctx.chatProvider.setSession(session.sessionId);
+                    ctx.sessionsProvider.refresh();
+                    stream.markdown(`✅ **Created new session:** \`${session.sessionId.slice(0, 8)}...\``);
+                } catch (error) {
+                    stream.markdown(`❌ **Failed to create session:** ${error}`);
+                    return;
+                }
+            }
+
+            // Store stream reference for sessionUpdate routing
+            currentChatStream = stream;
+            ctx.chatParticipantStream = stream;
+
+            try {
+                // Handle slash commands
+                if (request.command) {
+                    await handleChatCommand(request.command, request, ctx, stream, token);
+                    return;
+                }
+
+                // Send prompt to Hermes
+                await ctx.client.sendPrompt(ctx.currentSessionId, request.prompt);
             
-            // Wait for response via sessionUpdate events
-            // The response will be streamed through handleSessionUpdate
-            
-        } catch (error) {
+                // Wait for response via sessionUpdate events
+                // The response will be streamed through handleSessionUpdate
+
+            } catch (error) {
             logger.error('Chat participant error', error);
             stream.markdown(`❌ Error: ${error}`);
         } finally {

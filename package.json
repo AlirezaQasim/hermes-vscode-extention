@@ -125,8 +125,8 @@
         },
         "hermes.acpCommand": {
           "type": "string",
-          "default": "hermes",
-          "description": "Command to start Hermes ACP server"
+          "default": "C:\\\\Users\\\\Home\\\\AppData\\\\Local\\\\hermes\\\\hermes-agent\\\\hermes.exe",
+          "description": "Full path to Hermes CLI executable (e.g., C:\\\\Users\\\\Home\\\\AppData\\\\Local\\\\hermes\\\\hermes-agent\\\\hermes.exe)"
         },
         "hermes.acpArgs": {
           "type": "array",
@@ -367,5 +367,10 @@
     "sharp": "^0.35.4",
     "uuid": "^9.0.0",
     "vscode-languageclient": "^9.0.0"
+  },
+  "allowScripts": {
+    "@vscode/vsce-sign@2.1.0": true,
+    "esbuild@0.28.1": true,
+    "keytar@7.9.0": true
   }
 }

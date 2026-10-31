@@ -1,10 +1,5 @@
 import * as vscode from 'vscode';
 import type { Logger } from '../utils/logger';
-import DOMPurify from 'dompurify';
-import { JSDOM } from 'jsdom';
-
-const window = new JSDOM('').window;
-DOMPurify(window);
 
 interface ChatMessage {
     id: string;
