@@ -186,10 +186,16 @@ async function connectToHermes(): Promise<void> {
         ctx.logger.info('Connecting to Hermes ACP server...');
         ctx.statusBar.setConnecting();
 
+        const acpCommand = ctx.config.get('acpCommand', 'hermes');
+        const acpArgs = ctx.config.get('acpArgs', ['acp']);
+        const cwd = ctx.config.get('cwd', vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd());
+        
+        ctx.logger.info(`ACP Config: command="${acpCommand}", args=[${acpArgs.join(', ')}], cwd="${cwd}"`);
+
         const client = new HermesACPClient({
-            command: ctx.config.get('acpCommand', 'hermes'),
-            args: ctx.config.get('acpArgs', ['acp']),
-            cwd: ctx.config.get('cwd', vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd()),
+            command: acpCommand,
+            args: acpArgs,
+            cwd,
             env: process.env,
             logLevel: ctx.config.get('logLevel', 'info')
         });

@@ -125,14 +125,12 @@
         },
         "hermes.acpCommand": {
           "type": "string",
-          "default": "C:\\\\Users\\\\Home\\\\AppData\\\\Local\\\\hermes\\\\hermes-agent\\\\hermes.exe",
-          "description": "Full path to Hermes CLI executable (e.g., C:\\\\Users\\\\Home\\\\AppData\\\\Local\\\\hermes\\\\hermes-agent\\\\hermes.exe)"
+          "default": "C:UsersHomeAppDataLocalhermes\binhermes-acp.exe",
+          "description": "Full path to Hermes ACP executable (e.g., C:UsersHomeAppDataLocalhermes\binhermes-acp.exe)"
         },
         "hermes.acpArgs": {
           "type": "array",
-          "default": [
-            "acp"
-          ],
+          "default": [],
           "description": "Arguments for the ACP command"
         },
         "hermes.cwd": {

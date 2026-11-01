@@ -104,14 +104,24 @@ export class HermesACPClient extends EventEmitter {
     async connect(): Promise<void> {
         return new Promise((resolve, reject) => {
             try {
-                this.logger.info(`Starting Hermes ACP: ${this.config.command} ${this.config.args.join(' ')}`);
+                this.logger.info(`Starting Hermes ACP: command="${this.config.command}", args=[${this.config.args.join(', ')}], cwd="${this.config.cwd}"`);
+                
+                // Validate command path
+                if (!this.config.command || this.config.command.trim() === '') {
+                    throw new Error('ACP command is empty - check hermes.acpCommand setting');
+                }
 
-                this.process = spawn(this.config.command, this.config.args, {
+                // On Windows, hermes.exe may need shell: true to resolve dependencies properly
+                const isWindows = process.platform === 'win32';
+                const spawnOptions = {
                     cwd: this.config.cwd,
                     env: this.config.env,
-                    stdio: ['pipe', 'pipe', 'pipe'],
-                    windowsHide: true
-                });
+                    stdio: ['pipe', 'pipe', 'pipe'] as const,
+                    windowsHide: true,
+                    shell: isWindows // Use shell on Windows for proper executable resolution
+                };
+
+                this.process = spawn(this.config.command, this.config.args, spawnOptions);
 
                 if (!this.process.stdin || !this.process.stdout || !this.process.stderr) {
                     throw new Error('Failed to create stdio pipes');
