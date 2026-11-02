@@ -1,6 +1,8 @@
 import { EventEmitter } from 'events';
 import { spawn, type ChildProcess } from 'child_process';
+import * as fs from 'fs';
 import { Logger } from '../utils/logger';
+import { getHermesHome, getHermesCliPath, getHermesSafeCwd } from '../utils/hermesPaths';
 
 export interface ACPClientConfig {
     command: string;
@@ -104,27 +106,27 @@ export class HermesACPClient extends EventEmitter {
     async connect(): Promise<void> {
         return new Promise((resolve, reject) => {
             try {
-                this.logger.info(`Starting Hermes ACP: command="${this.config.command}", args=[${this.config.args.join(', ')}], cwd="${this.config.cwd}"`);
-                
-                // Validate command path
-                if (!this.config.command || this.config.command.trim() === '') {
-                    throw new Error('ACP command is empty - check hermes.acpCommand setting');
-                }
+                const commandPath = getHermesCliPath(this.config.command);
+                const hermesHome = getHermesHome();
+                const safeCwd = getHermesSafeCwd(this.config.cwd);
 
-                // On Windows, hermes.exe may need shell: true to resolve dependencies properly
+                this.logger.info(`Starting Hermes ACP: command="${commandPath}", args=[${this.config.args.join(', ')}], cwd="${safeCwd}", HERMES_HOME="${hermesHome}"`);
+
+                const env = { ...process.env, ...this.config.env, HERMES_HOME: hermesHome };
+
                 const isWindows = process.platform === 'win32';
-                const spawnOptions = {
-                    cwd: this.config.cwd,
-                    env: this.config.env,
+                const useShell = isWindows && (commandPath.toLowerCase().endsWith('.cmd') || commandPath.toLowerCase().endsWith('.bat'));
+
+                this.process = spawn(commandPath, this.config.args, {
+                    cwd: safeCwd,
+                    env,
                     stdio: ['pipe', 'pipe', 'pipe'] as const,
                     windowsHide: true,
-                    shell: isWindows // Use shell on Windows for proper executable resolution
-                };
-
-                this.process = spawn(this.config.command, this.config.args, spawnOptions);
+                    shell: useShell
+                });
 
                 if (!this.process.stdin || !this.process.stdout || !this.process.stderr) {
-                    throw new Error('Failed to create stdio pipes');
+                    throw new Error('Failed to create stdio pipes for Hermes process');
                 }
 
                 this.process.stdout.on('data', (data: Buffer) => {
@@ -146,11 +148,17 @@ export class HermesACPClient extends EventEmitter {
 
                 this.process.on('exit', (code, signal) => {
                     this.logger.info(`ACP process exited: code=${code}, signal=${signal}`);
+                    const wasConnected = this.isConnected;
                     this.isConnected = false;
-                    this.emit('disconnected', `Process exited (code: ${code}, signal: ${signal})`);
+                    this.process = null;
+                    if (wasConnected) {
+                        this.emit('disconnected', `Process exited (code: ${code}, signal: ${signal})`);
+                    } else {
+                        reject(new Error(`Hermes process exited before connection: code=${code}, signal=${signal}`));
+                    }
                 });
 
-                // Wait a bit for process to start, then initialize
+                // Send initialize request. Python ACP adapter may take 1-2 seconds to boot plugins.
                 setTimeout(async () => {
                     try {
                         const initResponse = await this.sendRequest('initialize', {
@@ -167,7 +175,7 @@ export class HermesACPClient extends EventEmitter {
                                 title: 'VS Code Hermes Extension',
                                 version: '1.0.0'
                             }
-                        });
+                        }, 20000);
 
                         this.logger.debug('Initialize response', initResponse);
                         this.isConnected = true;
@@ -178,7 +186,7 @@ export class HermesACPClient extends EventEmitter {
                         this.cleanup();
                         reject(error);
                     }
-                }, 1000);
+                }, 1500);
 
             } catch (error) {
                 this.logger.error('Failed to spawn ACP process', error);
@@ -188,7 +196,6 @@ export class HermesACPClient extends EventEmitter {
     }
 
     async disconnect(): Promise<void> {
-        // Reject all pending requests
         for (const [, { reject }] of this.pendingRequests) {
             reject(new Error('Disconnected'));
         }
@@ -196,14 +203,12 @@ export class HermesACPClient extends EventEmitter {
 
         if (this.process) {
             this.process.kill('SIGTERM');
-            // Wait for process to actually exit
             await new Promise<void>((resolve) => {
                 if (!this.process) {
                     resolve();
                     return;
                 }
                 this.process.on('exit', () => resolve());
-                // Force kill after 2 seconds
                 setTimeout(() => {
                     if (this.process) {
                         this.process.kill('SIGKILL');
@@ -224,12 +229,13 @@ export class HermesACPClient extends EventEmitter {
         this.buffer = lines.pop() || '';
 
         for (const line of lines) {
-            if (line.trim()) {
+            const trimmed = line.trim();
+            if (trimmed) {
                 try {
-                    const message: ACPMessage = JSON.parse(line);
+                    const message: ACPMessage = JSON.parse(trimmed);
                     this.handleMessage(message);
                 } catch (error) {
-                    this.logger.error('Failed to parse ACP message', error, line);
+                    this.logger.error('Failed to parse ACP message', error, trimmed);
                 }
             }
         }
@@ -270,9 +276,9 @@ export class HermesACPClient extends EventEmitter {
         }
     }
 
-    private async sendRequest(method: string, params: any): Promise<any> {
+    private async sendRequest(method: string, params: any, timeoutMs: number = 30000): Promise<any> {
         if (!this.process || !this.process.stdin) {
-            throw new Error('Not connected');
+            throw new Error('Hermes ACP is not connected');
         }
 
         const id = ++this.messageId;
@@ -284,54 +290,61 @@ export class HermesACPClient extends EventEmitter {
         };
 
         return new Promise((resolve, reject) => {
-            this.pendingRequests.set(id, { resolve, reject });
+            const timer = setTimeout(() => {
+                if (this.pendingRequests.has(id)) {
+                    this.pendingRequests.delete(id);
+                    reject(new Error(`Request ${method} timed out after ${timeoutMs}ms`));
+                }
+            }, timeoutMs);
+
+            this.pendingRequests.set(id, {
+                resolve: (val) => {
+                    clearTimeout(timer);
+                    resolve(val);
+                },
+                reject: (err) => {
+                    clearTimeout(timer);
+                    reject(err);
+                }
+            });
 
             const data = JSON.stringify(message) + '\n';
             this.process!.stdin!.write(data, (error) => {
                 if (error) {
+                    clearTimeout(timer);
                     this.pendingRequests.delete(id);
                     reject(error);
                 }
             });
-
-            // Timeout after 30 seconds
-            setTimeout(() => {
-                if (this.pendingRequests.has(id)) {
-                    this.pendingRequests.delete(id);
-                    reject(new Error(`Request ${method} timed out`));
-                }
-            }, 30000);
         });
     }
 
     async createSession(cwd: string): Promise<ACPSession> {
+        const safeCwd = getHermesSafeCwd(cwd);
         const response = await this.sendRequest('session/new', {
-            cwd,
+            cwd: safeCwd,
             mcpServers: []
-        });
+        }, 30000);
         this.currentSessionId = response.sessionId;
         return response;
     }
 
     async loadSession(sessionId: string, cwd: string): Promise<ACPSession | null> {
+        const safeCwd = getHermesSafeCwd(cwd);
         const response = await this.sendRequest('session/load', {
             sessionId,
-            cwd,
+            cwd: safeCwd,
             mcpServers: []
-        });
+        }, 30000);
         if (response) {
             this.currentSessionId = response.sessionId;
         }
-        
-        // Wait for history replay to complete (signaled by 'history_end' notification or timeout)
         await this.waitForHistoryReplay();
-        
         return response;
     }
 
     private waitForHistoryReplay(): Promise<void> {
         return new Promise((resolve) => {
-            // Listen for history_end notification from ACP
             const handler = (update: any) => {
                 if (update.kind === 'history_end' || update.kind === 'history_complete') {
                     this.off('sessionUpdate', handler);
@@ -339,17 +352,17 @@ export class HermesACPClient extends EventEmitter {
                 }
             };
             this.on('sessionUpdate', handler);
-            
-            // Fallback timeout - history replay should complete within 10 seconds
+
             setTimeout(() => {
                 this.off('sessionUpdate', handler);
                 resolve();
-            }, 10000);
+            }, 8000);
         });
     }
 
-    async sendPrompt(sessionId: string, prompt: string): Promise<void> {
-        await this.sendRequest('session/prompt', {
+    async sendPrompt(sessionId: string, prompt: string): Promise<any> {
+        // Prompts can take several minutes to generate and execute tools
+        return await this.sendRequest('session/prompt', {
             sessionId,
             prompt: [
                 {
@@ -357,23 +370,21 @@ export class HermesACPClient extends EventEmitter {
                     text: prompt
                 }
             ]
-        });
+        }, 600000);
     }
 
     async cancelTurn(sessionId: string): Promise<void> {
         await this.sendRequest('session/cancel', {
             sessionId
-        });
+        }, 10000);
     }
 
     async listSessions(): Promise<any[]> {
-        const response = await this.sendRequest('session/list', {});
+        const response = await this.sendRequest('session/list', {}, 20000);
         return response.sessions || [];
     }
 
     async getAvailableModels(_sessionId: string): Promise<any[]> {
-        // This would be available from session creation or a models endpoint
-        // For now, return empty - models are in the session response
         return [];
     }
 
@@ -385,31 +396,26 @@ export class HermesACPClient extends EventEmitter {
         await this.sendRequest('session/setModel', {
             sessionId,
             model: modelId
-        });
+        }, 15000);
     }
 
     async setProvider(_sessionId: string, providerId: string): Promise<void> {
-        // Provider switching might be done via model string (provider:model)
         await this.setModel(_sessionId, providerId);
     }
 
     async getTokenUsage(_sessionId: string): Promise<ACPTokenUsage | null> {
-        // Would need a specific method or get from session updates
         return null;
     }
 
     async injectSkills(sessionId: string, skillNames: string[]): Promise<void> {
-        // Use the proper ACP method for skill injection if available
-        // Fallback to steer command for older Hermes versions
         try {
             await this.sendRequest('session/configure', {
                 sessionId,
                 config: {
                     skills: skillNames
                 }
-            });
+            }, 15000);
         } catch {
-            // Fallback: send as a steer command
             await this.sendPrompt(sessionId, `/skill ${skillNames.join(' ')}`);
         }
     }
@@ -438,7 +444,11 @@ export class HermesACPClient extends EventEmitter {
 
     private cleanup(): void {
         if (this.process) {
-            this.process.kill('SIGTERM');
+            try {
+                this.process.kill('SIGTERM');
+            } catch {
+                // ignore
+            }
             this.process = null;
         }
         this.isConnected = false;

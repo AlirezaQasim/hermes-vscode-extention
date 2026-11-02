@@ -13,6 +13,7 @@ import { PermissionHandler } from './handlers/permissionHandler';
 import { FileSystemHandler } from './handlers/fileSystemHandler';
 import { TerminalHandler } from './handlers/terminalHandler';
 import { Logger } from './utils/logger';
+import { getHermesSafeCwd } from './utils/hermesPaths';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -58,7 +59,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const fileSystemHandler = new FileSystemHandler(logger);
     const terminalHandler = new TerminalHandler(logger);
 
-    const chatProvider = new ChatViewProvider(context, logger);
+    const chatProvider = new ChatViewProvider(context, logger, () => extensionContext);
     const sessionsProvider = new SessionsViewProvider(context, logger);
     const skillsProvider = new SkillsViewProvider(context, logger);
     const toolsProvider = new ToolsViewProvider(context, logger);
@@ -94,6 +95,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         currentSessionId: null,
         chatParticipantStream: null
     };
+    (global as any).hermesExtensionContext = extensionContext;
 
     context.subscriptions.push(
         vscode.commands.registerCommand('hermes.connect', async () => {
@@ -157,15 +159,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         })
     );
 
-    // Initialize session manager (check for existing Hermes database)
-    await sessionManager.initialize();
+    // Initialize session manager safely
+    sessionManager.initialize().catch(err => logger.warn('Session manager init warning:', err));
 
-    // Register chat participant (enterprise integration)
-    await registerChatParticipant(context);
+    // Register chat participant
+    registerChatParticipant(context).catch(err => logger.warn('Chat participant registration warning:', err));
 
-    // Auto-connect if enabled
+    // Auto-connect in background if enabled
     if (config.get('enabled', true)) {
-        await connectToHermes();
+        connectToHermes().catch(err => logger.warn('Auto-connect warning:', err));
     }
 
     logger.info('Hermes Agent extension activated');
@@ -188,7 +190,9 @@ async function connectToHermes(): Promise<void> {
 
         const acpCommand = ctx.config.get('acpCommand', 'hermes');
         const acpArgs = ctx.config.get('acpArgs', ['acp']);
-        const cwd = ctx.config.get('cwd', vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd());
+        const configuredCwd = ctx.config.get('cwd', '${workspaceFolder}');
+        const workspaceCwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const cwd = getHermesSafeCwd(configuredCwd, workspaceCwd);
         
         ctx.logger.info(`ACP Config: command="${acpCommand}", args=[${acpArgs.join(', ')}], cwd="${cwd}"`);
 
@@ -213,25 +217,30 @@ async function connectToHermes(): Promise<void> {
             await loadExistingSessions();
 
             // Auto-create a session if none exists
-            const sessions = ctx.sessionManager.getSessions();
+            const sessions = ctx.sessionManager.listSessions();
             if (sessions.length === 0) {
                 ctx.logger.info('No existing sessions found, creating new session...');
                 try {
-                    const cwd = ctx.config.get('cwd', vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd());
-                    const session = await ctx.client.createSession(cwd);
-                    ctx.currentSessionId = session.sessionId;
-                    ctx.chatProvider.setSession(session.sessionId);
-                    ctx.sessionsProvider.refresh();
-                    ctx.logger.info(`Created new session: ${session.sessionId}`);
+                    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                    const sessionCwd = getHermesSafeCwd(ctx.config.get('cwd', '${workspaceFolder}'), workspaceFolder);
+                    if (ctx.client) {
+                        const session = await ctx.client.createSession(sessionCwd);
+                        ctx.currentSessionId = session.sessionId;
+                        ctx.chatProvider.setSession(session.sessionId);
+                        ctx.sessionsProvider.refresh();
+                        ctx.logger.info(`Created new session: ${session.sessionId}`);
+                    }
                 } catch (error) {
                     ctx.logger.error('Failed to auto-create session', error);
                 }
             } else {
                 // Load the most recent session
                 const latestSession = sessions[0];
-                ctx.currentSessionId = latestSession.id;
-                ctx.chatProvider.setSession(latestSession.id);
-                ctx.logger.info(`Loaded existing session: ${latestSession.id}`);
+                if (latestSession) {
+                    ctx.currentSessionId = latestSession.sessionId;
+                    ctx.chatProvider.setSession(latestSession.sessionId);
+                    ctx.logger.info(`Loaded existing session: ${latestSession.sessionId}`);
+                }
             }
         });
 
@@ -644,48 +653,51 @@ async function registerChatParticipant(context: vscode.ExtensionContext): Promis
     const logger = new Logger('HermesChatParticipant');
     
     hermesChatParticipant = vscode.chat.createChatParticipant('hermes.agent', async (request, _context, stream, token) => {
-            const ctx = getExtensionContext();
-            if (!ctx || !ctx.client) {
-                stream.markdown('⚠️ **Not connected to Hermes**. Run "Hermes: Connect" first.');
+        const ctx = getExtensionContext();
+        if (!ctx || !ctx.client) {
+            stream.markdown('⚠️ **Not connected to Hermes**. Run "Hermes: Connect" first or open the Hermes panel.');
+            return;
+        }
+
+        token.onCancellationRequested(async () => {
+            if (ctx.client && ctx.currentSessionId) {
+                await ctx.client.cancelTurn(ctx.currentSessionId);
+            }
+        });
+
+        // Auto-create session if needed
+        if (!ctx.currentSessionId) {
+            stream.progress('Creating new Hermes session...');
+            try {
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                const sessionCwd = getHermesSafeCwd(ctx.config.get('cwd', '${workspaceFolder}'), workspaceFolder);
+                const session = await ctx.client.createSession(sessionCwd);
+                ctx.currentSessionId = session.sessionId;
+                ctx.chatProvider.setSession(session.sessionId);
+                ctx.sessionsProvider.refresh();
+                stream.markdown(`⚡ **Session:** \`${session.sessionId.slice(0, 8)}...\`\n\n`);
+            } catch (error) {
+                stream.markdown(`❌ **Failed to create session:** ${error}`);
+                return;
+            }
+        }
+
+        // Store stream reference for sessionUpdate routing
+        currentChatStream = stream;
+        ctx.chatParticipantStream = stream;
+
+        try {
+            // Handle slash commands
+            if (request.command) {
+                await handleChatCommand(request.command, request, ctx, stream, token);
                 return;
             }
 
-            // Auto-create session if needed
-            if (!ctx.currentSessionId) {
-                stream.progress('Creating new session...');
-                try {
-                    const cwd = ctx.config.get('cwd', vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd());
-                    const session = await ctx.client.createSession(cwd);
-                    ctx.currentSessionId = session.sessionId;
-                    ctx.chatProvider.setSession(session.sessionId);
-                    ctx.sessionsProvider.refresh();
-                    stream.markdown(`✅ **Created new session:** \`${session.sessionId.slice(0, 8)}...\``);
-                } catch (error) {
-                    stream.markdown(`❌ **Failed to create session:** ${error}`);
-                    return;
-                }
-            }
-
-            // Store stream reference for sessionUpdate routing
-            currentChatStream = stream;
-            ctx.chatParticipantStream = stream;
-
-            try {
-                // Handle slash commands
-                if (request.command) {
-                    await handleChatCommand(request.command, request, ctx, stream, token);
-                    return;
-                }
-
-                // Send prompt to Hermes
-                await ctx.client.sendPrompt(ctx.currentSessionId, request.prompt);
-            
-                // Wait for response via sessionUpdate events
-                // The response will be streamed through handleSessionUpdate
-
-            } catch (error) {
+            // Send prompt to Hermes (await completes when the turn finishes)
+            await ctx.client.sendPrompt(ctx.currentSessionId, request.prompt);
+        } catch (error) {
             logger.error('Chat participant error', error);
-            stream.markdown(`❌ Error: ${error}`);
+            stream.markdown(`\n\n❌ **Error:** ${error}`);
         } finally {
             currentChatStream = null;
             if (ctx) {

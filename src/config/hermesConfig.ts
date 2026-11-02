@@ -1,6 +1,7 @@
 import type { Logger } from '../utils/logger';
 import * as fs from 'fs';
 import * as path from 'path';
+import { getHermesHome } from '../utils/hermesPaths';
 
 export interface HermesSession {
     id: string;
@@ -24,24 +25,17 @@ export class HermesDatabase {
     }
 
     private getDatabasePath(): string {
-        const hermesHome = process.env.HERMES_HOME || 
-            (process.platform === 'win32' 
-                ? `${process.env.USERPROFILE}\\.hermes`
-                : `${process.env.HOME}/.hermes`);
+        const hermesHome = getHermesHome();
         return path.join(hermesHome, 'state.db');
     }
 
     async getSessions(): Promise<HermesSession[]> {
         try {
-            // Check if database exists
             if (!fs.existsSync(this.dbPath)) {
-                this.logger.warn('Hermes database not found', this.dbPath);
+                this.logger.debug('Hermes database not found', this.dbPath);
                 return [];
             }
-
-            // Use better-sqlite3 if available, otherwise return empty
-            // For now, we'll use a simpler approach - read from the sessions directory
-            // The ACP adapter stores sessions in the database, but we can also use the ACP list method
+            // ACP listSessions is the primary source of truth for sessions.
             return [];
         } catch (error) {
             this.logger.error('Failed to read Hermes database', error);
@@ -50,8 +44,6 @@ export class HermesDatabase {
     }
 
     async loadSessionHistory(_sessionId: string): Promise<any[]> {
-        // This would require better-sqlite3 or direct SQLite access
-        // For now, return empty - sessions will be loaded via ACP list/load
         return [];
     }
 
@@ -71,10 +63,7 @@ export class HermesConfig {
 
     constructor(logger: Logger) {
         this.logger = logger;
-        const hermesHome = process.env.HERMES_HOME || 
-            (process.platform === 'win32' 
-                ? `${process.env.USERPROFILE}\\.hermes`
-                : `${process.env.HOME}/.hermes`);
+        const hermesHome = getHermesHome();
         this.configPath = path.join(hermesHome, 'config.yaml');
         this.envPath = path.join(hermesHome, '.env');
     }
@@ -82,14 +71,13 @@ export class HermesConfig {
     async readConfig(): Promise<any> {
         try {
             if (!fs.existsSync(this.configPath)) {
-                return null;
+                return {};
             }
             const content = fs.readFileSync(this.configPath, 'utf8');
-            // Simple YAML parsing for key fields
-            return this.parseYaml(content);
+            return this.parseYaml(content) || {};
         } catch (error) {
             this.logger.error('Failed to read config.yaml', error);
-            return null;
+            return {};
         }
     }
 
@@ -119,49 +107,46 @@ export class HermesConfig {
     }
 
     private parseYaml(content: string): any {
-        const result: any = {};
-        let currentSection = result;
-        const sectionStack: any[] = [result];
-        
-        for (const line of content.split('\n')) {
+        const result: Record<string, any> = {};
+        const lines = content.split(/\r?\n/);
+        const stack: { indent: number; obj: Record<string, any> }[] = [{ indent: -1, obj: result }];
+
+        for (const rawLine of lines) {
+            const line = rawLine.replace(/#.*$/, ''); // strip comments
+            if (!line.trim()) continue;
+
+            const indent = line.search(/\S/);
             const trimmed = line.trim();
-            if (!trimmed || trimmed.startsWith('#')) continue;
-            
-            const indent = line.length - line.trimStart().length;
-            
-            // Handle section nesting
-            while (sectionStack.length > 1 && indent <= this.getLastIndent(sectionStack)) {
-                sectionStack.pop();
+
+            while (stack.length > 1 && stack[stack.length - 1] && indent <= (stack[stack.length - 1]?.indent ?? -1)) {
+                stack.pop();
             }
-            currentSection = sectionStack[sectionStack.length - 1];
-            
-            if (trimmed.endsWith(':')) {
-                const key = trimmed.slice(0, -1).trim();
-                currentSection[key] = {};
-                sectionStack.push(currentSection[key]);
-            } else if (trimmed.includes(':')) {
-                const [key, ...valueParts] = trimmed.split(':');
-                const value = valueParts.join(':').trim();
-                if (key) {
-                    currentSection[key.trim()] = this.parseValue(value);
+            const current = stack[stack.length - 1]?.obj ?? result;
+
+            const colonIdx = trimmed.indexOf(':');
+            if (colonIdx !== -1) {
+                const key = trimmed.slice(0, colonIdx).trim();
+                const rawVal = trimmed.slice(colonIdx + 1).trim();
+
+                if (rawVal === '') {
+                    // Nested object
+                    const nextObj: Record<string, any> = {};
+                    current[key] = nextObj;
+                    stack.push({ indent, obj: nextObj });
+                } else {
+                    current[key] = this.parseValue(rawVal);
                 }
             }
         }
         return result;
     }
 
-    private getLastIndent(_stack: any[]): number {
-        // Simplified - just return a large number
-        return 0;
-    }
-
     private parseValue(value: string): any {
         if (value === 'true') return true;
         if (value === 'false') return false;
         if (value === 'null' || value === '~') return null;
-        if (/^\d+$/.test(value)) return parseInt(value, 10);
-        if (/^\d+\.\d+$/.test(value)) return parseFloat(value);
-        // Remove quotes
+        if (/^-?\d+$/.test(value)) return parseInt(value, 10);
+        if (/^-?\d+\.\d+$/.test(value)) return parseFloat(value);
         if ((value.startsWith('"') && value.endsWith('"')) || 
             (value.startsWith("'") && value.endsWith("'"))) {
             return value.slice(1, -1);

@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 import type { Logger } from '../utils/logger';
+import { getHermesHome } from '../utils/hermesPaths';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export class SetupViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'hermes.setup';
@@ -8,28 +11,24 @@ export class SetupViewProvider implements vscode.WebviewViewProvider {
     private logger: Logger;
     private isConfigured = false;
     private configStatus = 'checking';
+    private hermesHome = '';
 
     constructor(context: vscode.ExtensionContext, logger: Logger) {
         this.context = context;
         this.logger = logger;
+        this.hermesHome = getHermesHome();
         this.checkConfiguration();
     }
 
     private async checkConfiguration(): Promise<void> {
         this.configStatus = 'checking';
+        this.hermesHome = getHermesHome();
         this.refresh();
         
         try {
-            // Check if Hermes CLI is installed and configured
-            const hermesHome = process.env.HERMES_HOME || 
-                (process.platform === 'win32' 
-                    ? `${process.env.USERPROFILE}\\.hermes`
-                    : `${process.env.HOME}/.hermes`);
+            const configFile = path.join(this.hermesHome, 'config.yaml');
+            const envFile = path.join(this.hermesHome, '.env');
             
-            const configFile = `${hermesHome}/config.yaml`;
-            const envFile = `${hermesHome}/.env`;
-            
-            const fs = await import('fs');
             const configExists = fs.existsSync(configFile);
             const envExists = fs.existsSync(envFile);
             
@@ -57,6 +56,9 @@ export class SetupViewProvider implements vscode.WebviewViewProvider {
 
     private async handleMessage(message: any): Promise<void> {
         switch (message.type) {
+            case 'connect':
+                await vscode.commands.executeCommand('hermes.connect');
+                break;
             case 'runSetup':
                 await this.runSetup();
                 break;
@@ -81,18 +83,16 @@ export class SetupViewProvider implements vscode.WebviewViewProvider {
         terminal.show();
         terminal.sendText('hermes setup');
         
-        // Wait a bit and re-check
         setTimeout(() => this.checkConfiguration(), 5000);
     }
 
     private async openConfigFile(): Promise<void> {
-        const hermesHome = process.env.HERMES_HOME || 
-            (process.platform === 'win32' 
-                ? `${process.env.USERPROFILE}\\.hermes`
-                : `${process.env.HOME}/.hermes`);
-        const configFile = `${hermesHome}/config.yaml`;
-        
+        const configFile = path.join(this.hermesHome, 'config.yaml');
         try {
+            if (!fs.existsSync(configFile)) {
+                vscode.window.showInformationMessage(`Creating config.yaml at ${configFile}`);
+                fs.writeFileSync(configFile, '# Hermes configuration\n', 'utf8');
+            }
             const doc = await vscode.workspace.openTextDocument(configFile);
             await vscode.window.showTextDocument(doc);
         } catch (error) {
@@ -101,13 +101,12 @@ export class SetupViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async openEnvFile(): Promise<void> {
-        const hermesHome = process.env.HERMES_HOME || 
-            (process.platform === 'win32' 
-                ? `${process.env.USERPROFILE}\\.hermes`
-                : `${process.env.HOME}/.hermes`);
-        const envFile = `${hermesHome}/.env`;
-        
+        const envFile = path.join(this.hermesHome, '.env');
         try {
+            if (!fs.existsSync(envFile)) {
+                vscode.window.showInformationMessage(`Creating .env at ${envFile}`);
+                fs.writeFileSync(envFile, '# Hermes API keys\n', 'utf8');
+            }
             const doc = await vscode.workspace.openTextDocument(envFile);
             await vscode.window.showTextDocument(doc);
         } catch (error) {
@@ -120,7 +119,8 @@ export class SetupViewProvider implements vscode.WebviewViewProvider {
             this.view.webview.postMessage({
                 type: 'update',
                 isConfigured: this.isConfigured,
-                configStatus: this.configStatus
+                configStatus: this.configStatus,
+                hermesHome: this.hermesHome
             });
         }
     }
@@ -128,36 +128,37 @@ export class SetupViewProvider implements vscode.WebviewViewProvider {
     private getHtml(): string {
         const nonce = this.getNonce();
 
-        // Inline CSS
         const css = `
 .container{padding:16px;font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);color:var(--vscode-foreground)}
-h1{font-size:1.4em;margin-bottom:16px;color:var(--vscode-foreground)}
-h2{font-size:1.1em;margin:20px 0 12px;color:var(--vscode-foreground);border-bottom:1px solid var(--vscode-panel-border);padding-bottom:4px}
-.section{margin-bottom:20px}
+h1{font-size:1.3em;margin-bottom:14px;color:var(--vscode-foreground);display:flex;align-items:center;gap:8px}
+h2{font-size:1.05em;margin:18px 0 10px;color:var(--vscode-foreground);border-bottom:1px solid var(--vscode-panel-border);padding-bottom:4px}
+.section{margin-bottom:16px}
 .buttons{display:flex;flex-direction:column;gap:8px}
-button{padding:10px 16px;border:none;border-radius:4px;cursor:pointer;font-size:13px;font-weight:500;transition:background-color 0.2s}
+button{padding:8px 14px;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;transition:background-color 0.2s;text-align:left;display:flex;align-items:center;gap:8px}
 button.primary{background-color:var(--vscode-button-background);color:var(--vscode-button-foreground)}
 button.primary:hover{background-color:var(--vscode-button-hoverBackground)}
 button:not(.primary){background-color:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground)}
 button:not(.primary):hover{background-color:var(--vscode-button-secondaryHoverBackground)}
 button:disabled{opacity:0.5;cursor:not-allowed}
-.status{padding:12px;border-radius:6px;margin-bottom:16px;font-weight:500}
+.status{padding:10px 12px;border-radius:6px;margin-bottom:14px;font-weight:500;font-size:12px}
 .status.checking{background-color:var(--vscode-editorInfo-background);color:var(--vscode-editorInfo-foreground)}
-.status.configured{background-color:var(--vscode-testing-iconPassed);color:var(--vscode-editor-background)}
-.status.not-configured{background-color:var(--vscode-editorWarning-background);color:var(--vscode-editorWarning-foreground)}
-.status.error{background-color:var(--vscode-editorError-background);color:var(--vscode-editorError-foreground)}
-.info code{background-color:var(--vscode-textCodeBlock-background);padding:2px 6px;border-radius:3px;font-family:var(--vscode-editor-font-family);font-size:0.9em}
-ul{margin:8px 0;padding-left:20px}
-li{margin:4px 0;line-height:1.5}
+.status.configured{background-color:rgba(46,160,67,0.15);color:#3fb950;border:1px solid rgba(46,160,67,0.4)}
+.status.not-configured{background-color:rgba(210,153,34,0.15);color:#d29922;border:1px solid rgba(210,153,34,0.4)}
+.status.error{background-color:rgba(248,81,73,0.15);color:#f85149;border:1px solid rgba(248,81,73,0.4)}
+.info{font-size:11px;line-height:1.6;background:var(--vscode-editor-inactiveSelectionBackground);padding:10px;border-radius:6px;word-break:break-all}
+.info code{background-color:var(--vscode-textCodeBlock-background);padding:2px 5px;border-radius:3px;font-family:var(--vscode-editor-font-family);font-size:0.9em}
+ul{margin:8px 0;padding-left:18px}
+li{margin:4px 0;line-height:1.4;font-size:11px}
 `;
 
-        // Inline JavaScript
         const js = `
 const vscode = acquireVsCodeApi();
 
 document.addEventListener('click', e => {
-    const target = e.target;
-    if (target.id === 'btn-run-setup') vscode.postMessage({ type: 'runSetup' });
+    const target = e.target.closest('button');
+    if (!target) return;
+    if (target.id === 'btn-connect') vscode.postMessage({ type: 'connect' });
+    else if (target.id === 'btn-run-setup') vscode.postMessage({ type: 'runSetup' });
     else if (target.id === 'btn-check-config') vscode.postMessage({ type: 'checkConfig' });
     else if (target.id === 'btn-open-config') vscode.postMessage({ type: 'openConfigFile' });
     else if (target.id === 'btn-open-env') vscode.postMessage({ type: 'openEnvFile' });
@@ -172,13 +173,17 @@ window.addEventListener('message', event => {
             if (message.configStatus === 'checking') {
                 statusHtml = '<div class="status checking">🔄 Checking configuration...</div>';
             } else if (message.configStatus === 'configured') {
-                statusHtml = '<div class="status configured">✅ Hermes is configured</div>';
+                statusHtml = '<div class="status configured">✅ Hermes is installed & configured</div>';
             } else if (message.configStatus === 'not_configured') {
-                statusHtml = '<div class="status not-configured">⚠️ Hermes not configured</div>';
+                statusHtml = '<div class="status not-configured">⚠️ Hermes not configured (run Setup)</div>';
             } else {
                 statusHtml = '<div class="status error">❌ Error checking configuration</div>';
             }
             statusEl.innerHTML = statusHtml;
+        }
+        const homeEl = document.getElementById('hermes-home');
+        if (homeEl && message.hermesHome) {
+            homeEl.textContent = message.hermesHome;
         }
     }
 });
@@ -188,12 +193,14 @@ window.addEventListener('message', event => {
         if (this.configStatus === 'checking') {
             statusHtml = '<div class="status checking">🔄 Checking configuration...</div>';
         } else if (this.configStatus === 'configured') {
-            statusHtml = '<div class="status configured">✅ Hermes is configured</div>';
+            statusHtml = '<div class="status configured">✅ Hermes is installed & configured</div>';
         } else if (this.configStatus === 'not_configured') {
-            statusHtml = '<div class="status not-configured">⚠️ Hermes not configured</div>';
+            statusHtml = '<div class="status not-configured">⚠️ Hermes not configured (run Setup)</div>';
         } else {
             statusHtml = '<div class="status error">❌ Error checking configuration</div>';
         }
+
+        const workspaceName = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || 'No workspace opened';
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -206,13 +213,14 @@ window.addEventListener('message', event => {
 </head>
 <body>
     <div class="container">
-        <h1>Hermes Agent Setup</h1>
+        <h1><span>⚡</span> Hermes Agent</h1>
         <div id="status">${statusHtml}</div>
         
         <div class="section">
             <h2>Quick Actions</h2>
             <div class="buttons">
-                <button id="btn-run-setup" class="primary">🔧 Run Hermes Setup</button>
+                <button id="btn-connect" class="primary">🔌 Connect to Hermes ACP</button>
+                <button id="btn-run-setup">🔧 Run Hermes Setup Wizard</button>
                 <button id="btn-check-config">🔄 Re-check Configuration</button>
             </div>
         </div>
@@ -226,20 +234,20 @@ window.addEventListener('message', event => {
         </div>
 
         <div class="section">
-            <h2>Status</h2>
+            <h2>Environment Details</h2>
             <div class="info">
-                <p><strong>Hermes Home:</strong> <code id="hermes-home"></code></p>
-                <p><strong>VS Code Workspace:</strong> <code id="workspace"></code></p>
+                <p><strong>Hermes Home:</strong> <br><code id="hermes-home">${this.hermesHome}</code></p>
+                <p style="margin-top:6px;"><strong>Active Workspace:</strong> <br><code>${workspaceName}</code></p>
             </div>
         </div>
 
         <div class="section">
-            <h2>Help</h2>
+            <h2>Quick Tips</h2>
             <ul>
-                <li>Run <code>hermes setup</code> to configure providers and models</li>
-                <li>API keys are stored in <code>~/.hermes/.env</code></li>
-                <li>Settings are in <code>~/.hermes/config.yaml</code></li>
-                <li>Sessions persist in <code>~/.hermes/state.db</code></li>
+                <li>Run <code>hermes setup</code> to configure models & providers</li>
+                <li>API keys: <code>${this.hermesHome}\\.env</code></li>
+                <li>Config: <code>${this.hermesHome}\\config.yaml</code></li>
+                <li>Sessions: <code>${this.hermesHome}\\state.db</code></li>
             </ul>
         </div>
     </div>

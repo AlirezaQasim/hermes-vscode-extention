@@ -129,6 +129,10 @@ export class SessionManager {
         return session?.history || [];
     }
 
+    getSessions(): SessionState[] {
+        return this.listSessions();
+    }
+
     listSessions(): SessionState[] {
         return Array.from(this.sessions.values())
             .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());

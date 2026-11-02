@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Logger } from '../utils/logger';
+import { getHermesHome } from '../utils/hermesPaths';
 
 interface SkillInfo {
     name: string;
@@ -25,11 +26,16 @@ export class SkillsViewProvider implements vscode.TreeDataProvider<SkillItem> {
     }
 
     async loadSkills(skillsPath: string): Promise<SkillInfo[]> {
-        const expandedPath = skillsPath.replace('~', process.env.HOME || process.env.USERPROFILE || '');
+        let expandedPath = skillsPath ? skillsPath.replace('~', process.env.HOME || process.env.USERPROFILE || '') : '';
         
-        if (!fs.existsSync(expandedPath)) {
-            this.logger.warn(`Skills path does not exist: ${expandedPath}`);
-            return [];
+        if (!expandedPath || !fs.existsSync(expandedPath)) {
+            const hermesHomeSkills = path.join(getHermesHome(), 'skills');
+            if (fs.existsSync(hermesHomeSkills)) {
+                expandedPath = hermesHomeSkills;
+            } else {
+                this.logger.warn(`Skills path does not exist: ${expandedPath}`);
+                return [];
+            }
         }
 
         const skills: SkillInfo[] = [];

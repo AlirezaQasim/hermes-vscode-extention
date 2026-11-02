@@ -36,6 +36,9 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigItem> {
     async getChildren(_element?: ConfigItem): Promise<ConfigItem[]> {
         try {
             const config = await this.hermesConfig.readConfig();
+            if (!config || typeof config !== 'object' || Object.keys(config).length === 0) {
+                return [{ key: 'Status', value: 'Hermes config empty or not found' }];
+            }
             const items: ConfigItem[] = [];
             this.flattenConfig(config, '', items);
             return items;
@@ -46,6 +49,7 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigItem> {
     }
 
     private flattenConfig(obj: any, prefix: string, items: ConfigItem[]): void {
+        if (!obj || typeof obj !== 'object') return;
         for (const [key, value] of Object.entries(obj)) {
             const fullKey = prefix ? `${prefix}.${key}` : key;
             if (value && typeof value === 'object' && !Array.isArray(value)) {

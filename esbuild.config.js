@@ -44,6 +44,17 @@ esbuild.build({
             fs.copyFileSync(src, dest);
         }
     });
+
+    // Copy UI assets (chatView.css, chatView.js, etc.)
+    const uiDir = './out/ui';
+    fs.mkdirSync(uiDir, { recursive: true });
+    ['chatView.css', 'chatView.js', 'setupView.css'].forEach(file => {
+        const src = `./src/ui/${file}`;
+        const dest = `${uiDir}/${file}`;
+        if (fs.existsSync(src)) {
+            fs.copyFileSync(src, dest);
+        }
+    });
     
     // Copy package.json, README, CHANGELOG, LICENSE
     ['package.json', 'README.md', 'CHANGELOG.md'].forEach(file => {

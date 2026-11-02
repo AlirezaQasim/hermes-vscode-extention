@@ -67,7 +67,7 @@ Grouped command menu with three dispatch modes:
   # Linux/macOS/WSL
   curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
   ```
-- Run `hermes setup` to configure providers
+- Run `hermes setup` to configure providers (API keys, models)
 - VS Code 1.85+
 
 ## Installation
@@ -88,11 +88,22 @@ code --install-extension hermes-vscode-1.0.0.vsix
 
 ## Quick Start
 
-1. Install Hermes CLI and run `hermes setup`
-2. Install this extension
-3. Open the Hermes panel from Activity Bar (sparkle icon)
-4. Click "Connect" or run **Hermes: Connect** command
-5. Start chatting!
+1. **Install Hermes CLI** and run `hermes setup`
+   ```bash
+   hermes setup
+   # Follow prompts to add API keys (OpenRouter, Anthropic, etc.)
+   # This creates ~/.hermes/config.yaml and ~/.hermes/.env
+   ```
+
+2. **Install this extension** (VSIX or Marketplace)
+
+3. **Reload VS Code** (`Ctrl+Shift+P` → "Developer: Reload Window")
+
+4. **Open Hermes panel** from Activity Bar (sparkle icon)
+
+5. **Click "Connect"** or run **Hermes: Connect** command
+
+6. **Start chatting!** Type `@hermes hello` in chat panel
 
 ## Configuration
 
@@ -101,9 +112,9 @@ All settings under `hermes.*` namespace:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `hermes.enabled` | `true` | Enable/disable extension |
-| `hermes.acpCommand` | `"hermes"` | Command to start ACP server |
+| `hermes.acpCommand` | `"hermes"` | **Full path to Hermes CLI executable** |
 | `hermes.acpArgs` | `["acp"]` | ACP command arguments |
-| `hermes.cwd` | `"${workspaceFolder}"` | Working directory |
+| `hermes.cwd` | `"${workspaceFolder}"` | Working directory (auto-set to `~/.hermes/hermes-agent`) |
 | `hermes.autoApprovePermissions` | `false` | Auto-approve tool permissions |
 | `hermes.showTokenUsage` | `true` | Show token usage in status bar |
 | `hermes.streamingEnabled` | `true` | Enable streaming responses |
@@ -112,6 +123,56 @@ All settings under `hermes.*` namespace:
 | `hermes.model` | `""` | Default model (empty = Hermes default) |
 | `hermes.provider` | `""` | Default provider (empty = Hermes default) |
 | `hermes.logLevel` | `"info"` | Log level (debug/info/warn/error) |
+
+### Hermes CLI Auto-Discovery (Zero Configuration Needed!)
+
+The extension automatically finds your Hermes CLI installation and configuration:
+- **Windows**: `%LOCALAPPDATA%\hermes\bin\hermes.cmd` or `hermes.exe`
+- **Linux/macOS**: `~/.local/bin/hermes` or `~/.hermes/bin/hermes`
+- **PATH**: Any `hermes` executable available in your system `PATH`
+
+If you have a custom or development build of Hermes located in a non-standard folder, you can explicitly set `hermes.acpCommand` in Settings (`Ctrl+,`).
+
+### Verify Connection
+
+Open the **Output** panel in VS Code (`Ctrl+Shift+U`) → Select **"Hermes Agent"** from the dropdown. You will see:
+```
+Starting Hermes ACP: command="...", args=[acp], cwd="..."
+Connected to Hermes ACP server
+Created new session: abc123...
+```
+
+## Troubleshooting
+
+### "Failed to connect: spawn ... ENOENT"
+The path in `hermes.acpCommand` is wrong or the executable doesn't exist.
+1. Verify path: `where hermes` (Windows) / `which hermes` (Linux/macOS)
+2. Update `hermes.acpCommand` in settings
+3. Reload window
+
+### "hermes acp --check" fails
+Run in terminal:
+```bash
+hermes acp --check
+# Should output: "Hermes ACP check OK"
+```
+If it fails, run `hermes setup` first.
+
+### No "Hermes Agent" in Output dropdown
+Extension failed to activate. Check:
+1. Extension is installed and enabled
+2. No errors in **Output → "Extension Host"** (filter "Hermes")
+3. Reload window
+
+### Chat shows "Not connected"
+1. Run **Hermes: Connect** command
+2. Or type `@hermes /new` in chat to auto-create session
+
+### Settings not taking effect
+User settings override defaults. Reset them:
+1. Settings → `hermes.acpCommand` → Click gear → "Reset Setting"
+2. Settings → `hermes.acpArgs` → Reset to `["acp"]`
+3. Reload window
 
 ## Commands
 

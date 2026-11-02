@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import type { Logger } from '../utils/logger';
 
 interface ChatMessage {
@@ -15,6 +17,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private view?: vscode.WebviewView;
     private context: vscode.ExtensionContext;
     private logger: Logger;
+    private getContext?: (() => any) | undefined;
     private messages: ChatMessage[] = [];
     private connected = false;
     private currentSessionId: string | null = null;
@@ -22,9 +25,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private pendingAgentMessage: string = '';
     private pendingThinking: string = '';
 
-    constructor(context: vscode.ExtensionContext, logger: Logger) {
+    constructor(context: vscode.ExtensionContext, logger: Logger, getContext?: (() => any) | undefined) {
         this.context = context;
         this.logger = logger;
+        this.getContext = getContext;
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -76,7 +80,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     addUserChunk(content: string): void {
-        // User messages are typically sent as complete
         this.addMessage({ role: 'user', content });
     }
 
@@ -150,7 +153,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     updateCommands(_commands: any[]): void {
-        // Update available commands in UI
         this.refresh();
     }
 
@@ -186,10 +188,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 await this.createNewSession();
                 break;
             case 'pickSkill':
-                await this.pickSkill();
+                this.pickSkill();
                 break;
             case 'switchModel':
-                await this.switchModel();
+                this.switchModel();
                 break;
             case 'clearHistory':
                 this.messages = [];
@@ -207,8 +209,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.pendingAgentMessage = '';
         this.pendingThinking = '';
 
-        // Send to extension
-        const ctx = (global as any).hermesExtensionContext;
+        const ctx = this.getContext ? this.getContext() : (global as any).hermesExtensionContext;
         if (ctx?.client && this.currentSessionId) {
             try {
                 await ctx.client.sendPrompt(this.currentSessionId, text);
@@ -216,18 +217,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 this.logger.error('Failed to send prompt', error);
                 this.addMessage({ role: 'system', content: `Error: ${error}` });
             }
+        } else if (!ctx?.client) {
+            this.addMessage({ role: 'system', content: 'Hermes is not connected. Click "Connect to Hermes" first.' });
         }
     }
 
     private async cancelTurn(): Promise<void> {
-        const ctx = (global as any).hermesExtensionContext;
+        const ctx = this.getContext ? this.getContext() : (global as any).hermesExtensionContext;
         if (ctx?.client && this.currentSessionId) {
             await ctx.client.cancelTurn(this.currentSessionId);
         }
     }
 
     private async createNewSession(): Promise<void> {
-        const ctx = (global as any).hermesExtensionContext;
+        const ctx = this.getContext ? this.getContext() : (global as any).hermesExtensionContext;
         if (ctx?.client) {
             const cwd = ctx.config.get('cwd', vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd());
             const session = await ctx.client.createSession(cwd);
@@ -255,6 +258,38 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    private getCss(): string {
+        try {
+            const outPath = path.join(this.context.extensionPath, 'out', 'ui', 'chatView.css');
+            if (fs.existsSync(outPath)) {
+                return fs.readFileSync(outPath, 'utf8');
+            }
+            const srcPath = path.join(this.context.extensionPath, 'src', 'ui', 'chatView.css');
+            if (fs.existsSync(srcPath)) {
+                return fs.readFileSync(srcPath, 'utf8');
+            }
+        } catch (e) {
+            this.logger.error('Failed to read chatView.css', e);
+        }
+        return '';
+    }
+
+    private getJs(): string {
+        try {
+            const outPath = path.join(this.context.extensionPath, 'out', 'ui', 'chatView.js');
+            if (fs.existsSync(outPath)) {
+                return fs.readFileSync(outPath, 'utf8');
+            }
+            const srcPath = path.join(this.context.extensionPath, 'src', 'ui', 'chatView.js');
+            if (fs.existsSync(srcPath)) {
+                return fs.readFileSync(srcPath, 'utf8');
+            }
+        } catch (e) {
+            this.logger.error('Failed to read chatView.js', e);
+        }
+        return '';
+    }
+
     private getHtml(): string {
         const nonce = this.getNonce();
         const css = this.getCss();
@@ -262,58 +297,56 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         const connectedClass = this.connected ? 'connected' : 'disconnected';
         const connectedText = this.connected ? 'Connected' : 'Disconnected';
-        const sessionIdHtml = this.currentSessionId ? '<span class="session-id">' + this.currentSessionId.slice(0, 8) + '...</span>' : '';
-        const tokenUsageHtml = this.tokenUsage ? '<span class="tokens">' + this.tokenUsage.total + ' tokens</span>' : '';
-        const promptPlaceholder = this.connected ? 'Type your message...' : 'Connect to Hermes first';
+        const sessionIdHtml = this.currentSessionId ? `<span class="session-id">${this.currentSessionId.slice(0, 8)}...</span>` : '';
+        const tokenUsageHtml = this.tokenUsage ? `<span class="tokens">${this.tokenUsage.total} tokens</span>` : '';
+        const promptPlaceholder = this.connected ? 'Ask Hermes anything... (Enter to send, Shift+Enter for newline)' : 'Connect to Hermes first';
         const disabledAttr = this.connected ? '' : 'disabled';
+        const cspSource = this.view?.webview.cspSource || '';
 
-        return '<!DOCTYPE html>' +
-            '<html lang="en">' +
-            '<head>' +
-            '<meta charset="UTF-8">' +
-            '<meta name="viewport" content="width=device-width, initial-scale=1.0">' +
-            '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src " + this.view?.webview.cspSource + " \'unsafe-inline\'; script-src \'nonce-" + nonce + "\' https://cdn.jsdelivr.net; img-src " + this.view?.webview.cspSource + " data: https:; font-src " + this.view?.webview.cspSource + ";">' +
-            '<style nonce="' + nonce + '">' + css + '</style>' +
-            '<script nonce="' + nonce + '" src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>' +
-            '<script nonce="' + nonce + '" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>' +
-            '<script nonce="' + nonce + '" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/typescript.min.js"></script>' +
-            '<script nonce="' + nonce + '" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/python.min.js"></script>' +
-            '<script nonce="' + nonce + '" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/javascript.min.js"></script>' +
-            '<script nonce="' + nonce + '" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/json.min.js"></script>' +
-            '<script nonce="' + nonce + '" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/bash.min.js"></script>' +
-            '<title>Hermes Chat</title>' +
-            '</head>' +
-            '<body>' +
-            '<div id="chat-container">' +
-            '<div id="header" class="' + connectedClass + '">' +
-            '<div class="status">' +
-            '<span class="indicator"></span>' +
-            '<span class="text">' + connectedText + '</span>' +
-            '</div>' +
-            '<div class="session-info">' +
-            sessionIdHtml +
-            tokenUsageHtml +
-            '</div>' +
-            '</div>' +
-            '<div id="messages" class="messages"></div>' +
-            '<div id="composer" class="composer">' +
-            '<div class="composer-toolbar">' +
-            '<button id="btn-new-session" title="New Session" ' + disabledAttr + '>+</button>' +
-            '<button id="btn-skill" title="Pick Skills" ' + disabledAttr + '>🔧</button>' +
-            '<button id="btn-model" title="Switch Model" ' + disabledAttr + '>🤖</button>' +
-            '<button id="btn-cancel" title="Cancel Turn" ' + disabledAttr + '>⏹</button>' +
-            '<button id="btn-clear" title="Clear History">🗑</button>' +
-            '</div>' +
-            '<div class="input-area">' +
-            '<textarea id="prompt-input" placeholder="' + promptPlaceholder + '" ' + disabledAttr + '></textarea>' +
-            '<button id="btn-send" ' + disabledAttr + '>Send</button>' +
-            '</div>' +
-            '</div>' +
-            '</div>' +
-            '<script nonce="' + nonce + '">' + js + '</script>' +
-            '</body>' +
-            '</html>';
-    }    private getNonce(): string {
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' https://cdn.jsdelivr.net; img-src ${cspSource} data: https:; font-src ${cspSource};">
+    <style nonce="${nonce}">${css}</style>
+    <script nonce="${nonce}" src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script nonce="${nonce}" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
+    <title>Hermes Chat</title>
+</head>
+<body>
+    <div id="chat-container">
+        <div id="header" class="${connectedClass}">
+            <div class="status">
+                <span class="indicator"></span>
+                <span class="text">${connectedText}</span>
+            </div>
+            <div class="session-info">
+                ${sessionIdHtml}
+                ${tokenUsageHtml}
+            </div>
+        </div>
+        <div id="messages" class="messages"></div>
+        <div id="composer" class="composer">
+            <div class="composer-toolbar">
+                <button id="btn-new-session" title="New Session" ${disabledAttr}>+ New Session</button>
+                <button id="btn-skill" title="Pick Skills" ${disabledAttr}>🔧 Skills</button>
+                <button id="btn-model" title="Switch Model" ${disabledAttr}>🤖 Model</button>
+                <button id="btn-cancel" title="Cancel Turn" ${disabledAttr}>⏹ Stop</button>
+                <button id="btn-clear" title="Clear Chat">🗑 Clear</button>
+            </div>
+            <div class="input-area">
+                <textarea id="prompt-input" placeholder="${promptPlaceholder}" ${disabledAttr}></textarea>
+                <button id="btn-send" ${disabledAttr}>Send</button>
+            </div>
+        </div>
+    </div>
+    <script nonce="${nonce}">${js}</script>
+</body>
+</html>`;
+    }
+
+    private getNonce(): string {
         let text = '';
         const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
         for (let i = 0; i < 32; i++) {
