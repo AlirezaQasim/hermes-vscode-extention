@@ -2,7 +2,7 @@ import type { Logger } from '../utils/logger';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
-import { getHermesHome } from '../utils/hermesPaths';
+import { getHermesHome, getPythonExecutablePath } from '../utils/hermesPaths';
 
 export interface HermesSession {
     id: string;
@@ -63,7 +63,8 @@ export class HermesDatabase {
             }
 
             const script = this.getScriptPath();
-            execFile('python', [script, 'list', this.dbPath, String(limit)], { timeout: 10000 }, (err, stdout) => {
+            const pythonExe = getPythonExecutablePath();
+            execFile(pythonExe, [script, 'list', this.dbPath, String(limit)], { timeout: 10000 }, (err, stdout) => {
                 if (err) {
                     this.logger.warn('Failed to query sessions via python db helper:', err);
                     resolve([]);
@@ -98,7 +99,8 @@ export class HermesDatabase {
             }
 
             const script = this.getScriptPath();
-            execFile('python', [script, 'messages', this.dbPath, sessionId], { timeout: 10000 }, (err, stdout) => {
+            const pythonExe = getPythonExecutablePath();
+            execFile(pythonExe, [script, 'messages', this.dbPath, sessionId], { timeout: 10000 }, (err, stdout) => {
                 if (err) {
                     this.logger.warn(`Failed to query messages for session ${sessionId}:`, err);
                     resolve([]);
@@ -119,7 +121,8 @@ export class HermesDatabase {
         return new Promise((resolve) => {
             const hermesHome = getHermesHome();
             const script = this.getScriptPath();
-            execFile('python', [script, 'skills', hermesHome], { timeout: 10000 }, (err, stdout) => {
+            const pythonExe = getPythonExecutablePath();
+            execFile(pythonExe, [script, 'skills', hermesHome], { timeout: 10000 }, (err, stdout) => {
                 if (err) {
                     this.logger.warn('Failed to query skills via python db helper:', err);
                     resolve([]);
@@ -144,7 +147,8 @@ export class HermesDatabase {
         return new Promise((resolve) => {
             const hermesHome = getHermesHome();
             const script = this.getScriptPath();
-            execFile('python', [script, 'models', hermesHome], { timeout: 10000 }, (err, stdout) => {
+            const pythonExe = getPythonExecutablePath();
+            execFile(pythonExe, [script, 'models', hermesHome], { timeout: 10000 }, (err, stdout) => {
                 if (err) {
                     this.logger.warn('Failed to query model config:', err);
                     resolve(null);
@@ -165,8 +169,9 @@ export class HermesDatabase {
         return new Promise((resolve) => {
             const hermesHome = getHermesHome();
             const script = this.getScriptPath();
+            const pythonExe = getPythonExecutablePath();
             const args = [script, 'save_model', provider, model, apiKey || '-', baseUrl || '-', hermesHome];
-            execFile('python', args, { timeout: 10000 }, (err, stdout) => {
+            execFile(pythonExe, args, { timeout: 10000 }, (err, stdout) => {
                 if (err) {
                     this.logger.error('Failed to save model config:', err);
                     resolve(false);

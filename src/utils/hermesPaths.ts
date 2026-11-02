@@ -6,8 +6,9 @@ import { execSync } from 'child_process';
 /**
  * Resolves the Hermes home directory across Windows, macOS, and Linux.
  * Follows Hermes Agent's internal `get_hermes_home()` convention:
- * - On Windows: %LOCALAPPDATA%\hermes (with fallback to %USERPROFILE%\AppData\Local\hermes or %USERPROFILE%\.hermes)
- * - On POSIX: ~/.hermes
+ * - On Windows: %LOCALAPPDATA%\hermes (with fallback to %USERPROFILE%\AppData\Local\hermes or ~/.hermes)
+ * - On macOS: ~/.hermes (fallback: ~/Library/Application Support/hermes)
+ * - On Linux: ~/.hermes (fallback: $XDG_DATA_HOME/hermes or ~/.local/share/hermes or ~/.config/hermes)
  */
 export function getHermesHome(): string {
     // 1. Explicit environment variable override
@@ -19,7 +20,6 @@ export function getHermesHome(): string {
     }
 
     if (process.platform === 'win32') {
-        // Windows platform default is LOCALAPPDATA\hermes
         const localAppData = process.env.LOCALAPPDATA;
         if (localAppData) {
             const localHermes = path.join(localAppData, 'hermes');
@@ -39,23 +39,55 @@ export function getHermesHome(): string {
             return dotHermes;
         }
 
-        // Default fallback on Windows
         return localAppData ? path.join(localAppData, 'hermes') : appDataHermes;
-    } else {
-        // macOS / Linux default
+    } else if (process.platform === 'darwin') {
+        // macOS
         const home = process.env.HOME || os.homedir();
-        return path.join(home, '.hermes');
+        const dotHermes = path.join(home, '.hermes');
+        if (fs.existsSync(dotHermes)) {
+            return dotHermes;
+        }
+
+        const appSupport = path.join(home, 'Library', 'Application Support', 'hermes');
+        if (fs.existsSync(appSupport)) {
+            return appSupport;
+        }
+
+        return dotHermes;
+    } else {
+        // Linux / BSD
+        const home = process.env.HOME || os.homedir();
+        const dotHermes = path.join(home, '.hermes');
+        if (fs.existsSync(dotHermes)) {
+            return dotHermes;
+        }
+
+        const xdgData = process.env.XDG_DATA_HOME || path.join(home, '.local', 'share');
+        const xdgHermes = path.join(xdgData, 'hermes');
+        if (fs.existsSync(xdgHermes)) {
+            return xdgHermes;
+        }
+
+        const xdgConfig = process.env.XDG_CONFIG_HOME || path.join(home, '.config');
+        const configHermes = path.join(xdgConfig, 'hermes');
+        if (fs.existsSync(configHermes)) {
+            return configHermes;
+        }
+
+        return dotHermes;
     }
 }
 
 /**
- * Locates the executable for Hermes CLI.
+ * Locates the executable for Hermes CLI across Windows, macOS, and Linux.
  * Checks in:
  * 1. Specific command passed in settings (if valid and not generic 'hermes')
- * 2. <hermesHome>\bin\hermes.cmd or hermes.exe (Windows)
- * 3. <hermesHome>\bin\hermes or ~/.local/bin/hermes (POSIX)
- * 4. System PATH via where / which
- * 5. Fallback 'hermes'
+ * 2. <hermesHome>/bin/hermes.cmd or hermes.exe (Windows)
+ * 3. <hermesHome>/bin/hermes
+ * 4. Homebrew on macOS: /opt/homebrew/bin/hermes (Apple Silicon) or /usr/local/bin/hermes (Intel)
+ * 5. Linux paths: ~/.local/bin/hermes, /usr/local/bin/hermes, /usr/bin/hermes, ~/.cargo/bin/hermes
+ * 6. System PATH via 'where.exe' (Windows) or 'which' (POSIX)
+ * 7. Fallback 'hermes'
  */
 export function getHermesCliPath(configuredCommand?: string): string {
     if (configuredCommand && configuredCommand.trim() !== '' && configuredCommand.trim() !== 'hermes') {
@@ -78,7 +110,6 @@ export function getHermesCliPath(configuredCommand?: string): string {
             return binExe;
         }
 
-        // Try 'where.exe hermes'
         try {
             const stdout = execSync('where.exe hermes', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
             const firstLine = stdout.split(/\r?\n/).find(line => line.trim().length > 0 && fs.existsSync(line.trim()));
@@ -86,19 +117,22 @@ export function getHermesCliPath(configuredCommand?: string): string {
                 return firstLine.trim();
             }
         } catch {
-            // where.exe not found or failed
+            // where.exe failed
         }
 
         return binCmd;
-    } else {
-        const binPath = path.join(hermesHome, 'bin', 'hermes');
-        if (fs.existsSync(binPath)) {
-            return binPath;
-        }
+    } else if (process.platform === 'darwin') {
+        const candidates = [
+            path.join(hermesHome, 'bin', 'hermes'),
+            '/opt/homebrew/bin/hermes',
+            '/usr/local/bin/hermes',
+            path.join(os.homedir(), '.local', 'bin', 'hermes')
+        ];
 
-        const localBin = path.join(os.homedir(), '.local', 'bin', 'hermes');
-        if (fs.existsSync(localBin)) {
-            return localBin;
+        for (const candidate of candidates) {
+            if (fs.existsSync(candidate)) {
+                return candidate;
+            }
         }
 
         try {
@@ -107,11 +141,126 @@ export function getHermesCliPath(configuredCommand?: string): string {
             if (firstLine && fs.existsSync(firstLine.trim())) {
                 return firstLine.trim();
             }
-        } catch {
-            // which failed
+        } catch {}
+
+        return path.join(hermesHome, 'bin', 'hermes');
+    } else {
+        const candidates = [
+            path.join(hermesHome, 'bin', 'hermes'),
+            path.join(os.homedir(), '.local', 'bin', 'hermes'),
+            '/usr/local/bin/hermes',
+            '/usr/bin/hermes',
+            path.join(os.homedir(), '.cargo', 'bin', 'hermes')
+        ];
+
+        for (const candidate of candidates) {
+            if (fs.existsSync(candidate)) {
+                return candidate;
+            }
         }
 
-        return 'hermes';
+        try {
+            const stdout = execSync('which hermes', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
+            const firstLine = stdout.split(/\n/).find(line => line.trim().length > 0);
+            if (firstLine && fs.existsSync(firstLine.trim())) {
+                return firstLine.trim();
+            }
+        } catch {}
+
+        return path.join(hermesHome, 'bin', 'hermes');
+    }
+}
+
+/**
+ * Resolves the Python executable to run helper scripts (hermesDb.py).
+ * On macOS / Linux, 'python3' is required as 'python' is often not installed.
+ * Also checks Hermes bundled virtual environments.
+ */
+export function getPythonExecutablePath(configuredPython?: string): string {
+    if (configuredPython && configuredPython.trim() !== '') {
+        const trimmed = configuredPython.trim();
+        if (fs.existsSync(trimmed)) {
+            return trimmed;
+        }
+    }
+
+    const hermesHome = getHermesHome();
+
+    if (process.platform === 'win32') {
+        // 1. Hermes bundled python in tools folder
+        const toolsDir = path.join(hermesHome, 'tools');
+        if (fs.existsSync(toolsDir)) {
+            try {
+                const subdirs = fs.readdirSync(toolsDir);
+                for (const sub of subdirs) {
+                    if (sub.startsWith('python-')) {
+                        const bundledExe = path.join(toolsDir, sub, 'python.exe');
+                        if (fs.existsSync(bundledExe)) {
+                            return bundledExe;
+                        }
+                    }
+                }
+            } catch {}
+        }
+
+        // 2. Check virtualenv in hermes-agent
+        const venvPy = path.join(hermesHome, 'hermes-agent', '.venv', 'Scripts', 'python.exe');
+        if (fs.existsSync(venvPy)) {
+            return venvPy;
+        }
+
+        // 3. Fallback to system python
+        return 'python';
+    } else {
+        // macOS & Linux
+        const candidates = [
+            path.join(hermesHome, 'hermes-agent', '.venv', 'bin', 'python3'),
+            path.join(hermesHome, 'hermes-agent', '.venv', 'bin', 'python'),
+            path.join(hermesHome, 'venv', 'bin', 'python3'),
+            path.join(hermesHome, 'venv', 'bin', 'python'),
+            '/opt/homebrew/bin/python3',
+            '/usr/local/bin/python3',
+            '/usr/bin/python3'
+        ];
+
+        for (const candidate of candidates) {
+            if (fs.existsSync(candidate)) {
+                return candidate;
+            }
+        }
+
+        const toolsDir = path.join(hermesHome, 'tools');
+        if (fs.existsSync(toolsDir)) {
+            try {
+                const subdirs = fs.readdirSync(toolsDir);
+                for (const sub of subdirs) {
+                    if (sub.startsWith('python-')) {
+                        const binPy = path.join(toolsDir, sub, 'bin', 'python3');
+                        if (fs.existsSync(binPy)) {
+                            return binPy;
+                        }
+                    }
+                }
+            } catch {}
+        }
+
+        try {
+            const stdout = execSync('which python3', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
+            const line = stdout.split(/\n/)[0]?.trim();
+            if (line && fs.existsSync(line)) {
+                return line;
+            }
+        } catch {}
+
+        try {
+            const stdout = execSync('which python', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
+            const line = stdout.split(/\n/)[0]?.trim();
+            if (line && fs.existsSync(line)) {
+                return line;
+            }
+        } catch {}
+
+        return 'python3';
     }
 }
 

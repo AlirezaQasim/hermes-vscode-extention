@@ -5,15 +5,58 @@ import json
 import re
 from pathlib import Path
 
+def get_hermes_home(h_home_str=None):
+    if h_home_str:
+        p = Path(h_home_str)
+        if p.exists():
+            return p
+    env_home = os.environ.get("HERMES_HOME", "").strip()
+    if env_home and Path(env_home).exists():
+        return Path(env_home)
+
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA", "")
+        if local:
+            p = Path(local) / "hermes"
+            if p.exists():
+                return p
+        app_data = Path.home() / "AppData" / "Local" / "hermes"
+        if app_data.exists():
+            return app_data
+        dot = Path.home() / ".hermes"
+        if dot.exists():
+            return dot
+        return Path(local) / "hermes" if local else app_data
+    elif sys.platform == "darwin":
+        dot = Path.home() / ".hermes"
+        if dot.exists():
+            return dot
+        app_sup = Path.home() / "Library" / "Application Support" / "hermes"
+        if app_sup.exists():
+            return app_sup
+        return dot
+    else:
+        # Linux / BSD / Unix
+        dot = Path.home() / ".hermes"
+        if dot.exists():
+            return dot
+        xdg_data = os.environ.get("XDG_DATA_HOME", "")
+        if xdg_data and (Path(xdg_data) / "hermes").exists():
+            return Path(xdg_data) / "hermes"
+        local_share = Path.home() / ".local" / "share" / "hermes"
+        if local_share.exists():
+            return local_share
+        xdg_cfg = os.environ.get("XDG_CONFIG_HOME", "")
+        if xdg_cfg and (Path(xdg_cfg) / "hermes").exists():
+            return Path(xdg_cfg) / "hermes"
+        return dot
+
 def get_db(db_path_str=None):
     if db_path_str:
         db_path = Path(db_path_str)
     else:
-        local = os.environ.get("LOCALAPPDATA", "")
-        if local:
-            db_path = Path(local) / "hermes" / "state.db"
-        else:
-            db_path = Path.home() / ".hermes" / "state.db"
+        h_home = get_hermes_home()
+        db_path = h_home / "state.db"
     
     if not db_path.exists():
         return None
@@ -23,19 +66,6 @@ def get_db(db_path_str=None):
         return conn
     except Exception:
         return None
-
-def get_hermes_home(h_home_str=None):
-    if h_home_str:
-        p = Path(h_home_str)
-        if p.exists():
-            return p
-    local = os.environ.get("LOCALAPPDATA", "")
-    if local:
-        p = Path(local) / "hermes"
-        if p.exists():
-            return p
-    p = Path.home() / ".hermes"
-    return p
 
 def list_sessions(db_path_str=None, limit=50):
     conn = get_db(db_path_str)

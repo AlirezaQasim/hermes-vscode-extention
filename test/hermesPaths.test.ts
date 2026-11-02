@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { getHermesHome, getHermesCliPath, getHermesSafeCwd } from '../src/utils/hermesPaths';
+import { getHermesHome, getHermesCliPath, getHermesSafeCwd, getPythonExecutablePath } from '../src/utils/hermesPaths';
 
 describe('hermesPaths', () => {
     test('getHermesHome returns a valid path', () => {
@@ -19,6 +19,12 @@ describe('hermesPaths', () => {
         const cliPath = getHermesCliPath();
         expect(typeof cliPath).toBe('string');
         expect(cliPath.length).toBeGreaterThan(0);
+    });
+
+    test('getPythonExecutablePath resolves python on any platform', () => {
+        const py = getPythonExecutablePath();
+        expect(typeof py).toBe('string');
+        expect(py.length).toBeGreaterThan(0);
     });
 
     test('getHermesSafeCwd returns an existing directory', () => {

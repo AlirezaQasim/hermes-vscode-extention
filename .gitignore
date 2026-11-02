@@ -4,6 +4,7 @@ node_modules/
 # Build output
 out/
 *.vsix
+!hermes-vscode-1.0.0.vsix
 
 # IDE
 .vscode/
