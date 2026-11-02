@@ -1,82 +1,171 @@
 const vscode = acquireVsCodeApi();
 
+// State
+let activeTab = 'chat';
 let messages = [];
 let connected = false;
 let sessionId = null;
 let sessionTitle = null;
 let tokenUsage = null;
+let modelConfig = null;
+let sessions = [];
+let skills = [];
+let appConfig = {};
+let selectedProviderId = 'openrouter';
+let selectedModelFilter = 'all';
 
+// Listen for messages from extension
 window.addEventListener('message', event => {
     const message = event.data;
     switch (message.type) {
         case 'update':
+            if (message.activeTab) activeTab = message.activeTab;
             messages = message.messages || [];
             connected = message.connected;
             sessionId = message.sessionId;
             sessionTitle = message.sessionTitle || null;
             tokenUsage = message.tokenUsage;
-            render();
+            if (message.modelConfig) modelConfig = message.modelConfig;
+            if (message.sessions) sessions = message.sessions;
+            if (message.skills) skills = message.skills;
+            if (message.config) appConfig = message.config;
+            renderAll();
             break;
     }
 });
 
-function render() {
-    renderHeader();
-    renderMessages();
+function renderAll() {
+    renderNavbar();
+    renderChatHeader();
     renderComposer();
+
+    switch (activeTab) {
+        case 'chat':
+            renderMessages();
+            break;
+        case 'sessions':
+            renderSessions();
+            break;
+        case 'skills':
+            renderSkills();
+            break;
+        case 'models':
+            renderModels();
+            break;
+        case 'settings':
+            renderSettings();
+            break;
+    }
 }
 
-function renderHeader() {
-    const header = document.getElementById('header');
+// ==========================================================================
+// Navigation & Tabs
+// ==========================================================================
+
+function switchTab(tabId) {
+    activeTab = tabId;
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.getAttribute('data-tab') === tabId);
+    });
+    document.querySelectorAll('.tab-panel').forEach(panel => {
+        panel.classList.toggle('active', panel.id === `tab-${tabId}`);
+    });
+    vscode.postMessage({ type: 'switchTab', tab: tabId });
+    renderAll();
+}
+
+function renderNavbar() {
+    // Badges
+    const sessBadge = document.getElementById('nav-sessions-count');
+    if (sessBadge) sessBadge.textContent = sessions.length;
+
+    const skillBadge = document.getElementById('nav-skills-count');
+    if (skillBadge) skillBadge.textContent = skills.length;
+
+    // Active tab
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.getAttribute('data-tab') === activeTab);
+    });
+    document.querySelectorAll('.tab-panel').forEach(panel => {
+        panel.classList.toggle('active', panel.id === `tab-${activeTab}`);
+    });
+}
+
+// Setup navbar click listeners
+document.querySelectorAll('.nav-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        const tabId = tab.getAttribute('data-tab');
+        if (tabId) switchTab(tabId);
+    });
+});
+
+// ==========================================================================
+// Chat Tab
+// ==========================================================================
+
+function renderChatHeader() {
+    const header = document.getElementById('chat-header');
     if (!header) return;
 
     header.className = connected ? 'connected' : 'disconnected';
-
-    const statusIndicator = header.querySelector('.indicator');
-    const statusText = header.querySelector('.text');
-    if (statusIndicator && statusText) {
-        statusIndicator.className = `indicator ${connected ? 'connected' : 'disconnected'}`;
-        statusText.textContent = connected ? 'Connected' : 'Disconnected';
+    const statusLabel = header.querySelector('.status-label');
+    if (statusLabel) {
+        statusLabel.textContent = connected ? 'Connected' : 'Disconnected';
     }
 
-    const sessionInfo = header.querySelector('.session-info');
-    if (sessionInfo) {
-        let html = '';
-        if (sessionId) {
-            const displayTitle = sessionTitle || sessionId.slice(0, 8);
-            const fullTitle = sessionTitle ? `${sessionTitle} (${sessionId})` : sessionId;
-            html += `<span class="session-id" title="${escapeHtml(fullTitle)}">${escapeHtml(displayTitle)}</span>`;
-        }
-        if (tokenUsage) {
-            html += `<span class="tokens">${tokenUsage.total || (tokenUsage.promptTokens + tokenUsage.completionTokens) || 0} tokens</span>`;
-        }
-        sessionInfo.innerHTML = html;
+    // Model badge
+    const modelBadge = document.getElementById('header-model-badge');
+    if (modelBadge) {
+        const currentModel = modelConfig?.current?.model || 'nemotron-3-ultra';
+        const shortName = currentModel.split('/').pop().replace(/:free$/, '');
+        modelBadge.textContent = shortName;
+        modelBadge.title = `Current Model: ${currentModel} (${modelConfig?.current?.provider || 'openrouter'})`;
+        modelBadge.onclick = () => switchTab('models');
+    }
 
-        const badge = sessionInfo.querySelector('.session-id');
-        if (badge) {
-            badge.addEventListener('click', () => {
-                if (sessionId) {
-                    navigator.clipboard.writeText(sessionId).then(() => {
-                        const original = badge.textContent;
-                        badge.textContent = '✓ Copied ID';
-                        setTimeout(() => { badge.textContent = original; }, 1500);
-                    });
-                }
-            });
+    // Session badge
+    const sessionBadge = document.getElementById('header-session-badge');
+    if (sessionBadge) {
+        if (sessionId) {
+            sessionBadge.style.display = 'inline-block';
+            sessionBadge.textContent = sessionTitle || sessionId.slice(0, 8);
+            sessionBadge.title = `Session: ${sessionId} (Click to copy ID)`;
+            sessionBadge.onclick = () => {
+                navigator.clipboard.writeText(sessionId).then(() => {
+                    const orig = sessionBadge.textContent;
+                    sessionBadge.textContent = '✓ Copied';
+                    setTimeout(() => { sessionBadge.textContent = orig; }, 1500);
+                });
+            };
+        } else {
+            sessionBadge.style.display = 'none';
+        }
+    }
+
+    // Token badge
+    const tokenBadge = document.getElementById('header-token-badge');
+    if (tokenBadge) {
+        if (tokenUsage) {
+            tokenBadge.style.display = 'inline-block';
+            const count = tokenUsage.total || (tokenUsage.promptTokens + tokenUsage.completionTokens) || 0;
+            tokenBadge.textContent = `${count} tokens`;
+        } else {
+            tokenBadge.style.display = 'none';
         }
     }
 }
 
 function renderMessages() {
-    const container = document.getElementById('messages');
+    const container = document.getElementById('messages-container');
     if (!container) return;
 
     if (!messages || messages.length === 0) {
+        const curModel = modelConfig?.current?.model || 'Hermes AI';
         container.innerHTML = `
             <div class="empty-state">
                 <div class="empty-icon">⚚</div>
                 <h2>Hermes AI Assistant</h2>
-                <p>Autonomous AI agent powered by local knowledge, custom skills, and ACP.</p>
+                <p>Autonomous AI agent running on <strong>${escapeHtml(curModel)}</strong>.</p>
                 <div class="quick-prompts">
                     <button class="quick-prompt" data-prompt="Explain this project architecture and codebase structure">
                         <span>🔍</span>
@@ -114,37 +203,27 @@ function renderMessages() {
     }
 
     container.innerHTML = messages.map(msg => renderMessage(msg)).join('');
-
-    // Scroll to bottom
     container.scrollTop = container.scrollHeight;
 
-    // Apply syntax highlighting
+    // Syntax highlight
     if (typeof hljs !== 'undefined') {
         container.querySelectorAll('pre code').forEach(block => {
-            try {
-                hljs.highlightElement(block);
-            } catch (e) {
-                // Ignore highlight errors
-            }
+            try { hljs.highlightElement(block); } catch (e) {}
         });
     }
 
-    // Wrap pre/code blocks with header & copy button
+    // Wrap pre/code with copy buttons
     container.querySelectorAll('pre').forEach(pre => {
         if (pre.closest('.code-block-wrapper')) return;
-
         const code = pre.querySelector('code');
         let lang = 'code';
         if (code) {
             const langClass = Array.from(code.classList).find(c => c.startsWith('language-'));
-            if (langClass) {
-                lang = langClass.replace('language-', '');
-            }
+            if (langClass) lang = langClass.replace('language-', '');
         }
 
         const wrapper = document.createElement('div');
         wrapper.className = 'code-block-wrapper';
-
         const blockHeader = document.createElement('div');
         blockHeader.className = 'code-block-header';
         blockHeader.innerHTML = `<span>${escapeHtml(lang)}</span><button class="copy-button" title="Copy code">📋 Copy</button>`;
@@ -175,11 +254,7 @@ function renderMessage(msg) {
     if (msg.role === 'tool') {
         contentHtml = `<pre><code>${escapeHtml(typeof msg.content === 'object' ? JSON.stringify(msg.content, null, 2) : String(msg.content))}</code></pre>`;
     } else if (typeof marked !== 'undefined') {
-        try {
-            contentHtml = marked.parse(msg.content || '');
-        } catch {
-            contentHtml = escapeHtml(msg.content || '');
-        }
+        try { contentHtml = marked.parse(msg.content || ''); } catch { contentHtml = escapeHtml(msg.content || ''); }
     } else {
         contentHtml = escapeHtml(msg.content || '');
     }
@@ -208,9 +283,7 @@ function renderMessage(msg) {
                 <span class="role-badge">${escapeHtml(roleDisplay)}</span>
                 <span class="time">${escapeHtml(time)}</span>
             </div>
-            <div class="message-content">
-                ${contentHtml}
-            </div>
+            <div class="message-content">${contentHtml}</div>
             ${thinkingHtml}
             ${toolCallsHtml}
         </div>
@@ -237,16 +310,11 @@ function renderToolCall(tc) {
         }
     }
 
-    if (tc.error) {
-        resultHtml = `<div class="tool-error"><pre><code>${escapeHtml(String(tc.error))}</code></pre></div>`;
-    }
-
     return `
         <div class="tool-call ${statusClass}">
             <div class="tool-header">
                 <span class="tool-kind">${escapeHtml(tc.kind || 'tool')}</span>
                 <span class="tool-name">${escapeHtml(tc.name || '')}</span>
-                <span class="tool-title">${escapeHtml(tc.title || '')}</span>
                 <span class="tool-status">${statusIcon}</span>
             </div>
             <div class="tool-args">${argsHtml}</div>
@@ -256,54 +324,15 @@ function renderToolCall(tc) {
 }
 
 function renderComposer() {
-    const sendBtn = document.getElementById('btn-send');
+    const sendBtn = document.getElementById('btn-send-prompt');
     const input = document.getElementById('prompt-input');
 
-    if (sendBtn) {
-        sendBtn.disabled = !connected;
-    }
+    if (sendBtn) sendBtn.disabled = !connected;
     if (input) {
         input.disabled = !connected;
         input.placeholder = connected ? 'Ask Hermes anything... (Enter to send, Shift+Enter for newline)' : 'Connect to Hermes first';
     }
 }
-
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = String(text);
-    return div.innerHTML;
-}
-
-// Event listeners
-document.addEventListener('click', e => {
-    const target = e.target;
-    if (!target) return;
-
-    if (target.id === 'btn-send') {
-        sendPrompt();
-    } else if (target.id === 'btn-new-session') {
-        vscode.postMessage({ type: 'newSession' });
-    } else if (target.id === 'btn-skill') {
-        vscode.postMessage({ type: 'pickSkill' });
-    } else if (target.id === 'btn-model') {
-        vscode.postMessage({ type: 'switchModel' });
-    } else if (target.id === 'btn-cancel') {
-        vscode.postMessage({ type: 'cancelTurn' });
-    } else if (target.id === 'btn-clear') {
-        vscode.postMessage({ type: 'clearHistory' });
-    }
-});
-
-document.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-        const input = document.getElementById('prompt-input');
-        if (e.target === input) {
-            e.preventDefault();
-            sendPrompt();
-        }
-    }
-});
 
 function sendPrompt() {
     const input = document.getElementById('prompt-input');
@@ -316,14 +345,431 @@ function sendPrompt() {
     vscode.postMessage({ type: 'sendPrompt', text });
 }
 
-// Auto-resize textarea
+// Keyboard shortcuts for prompt
 const promptInput = document.getElementById('prompt-input');
 if (promptInput) {
+    promptInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendPrompt();
+        }
+    });
     promptInput.addEventListener('input', () => {
         promptInput.style.height = 'auto';
-        promptInput.style.height = Math.min(promptInput.scrollHeight, 200) + 'px';
+        promptInput.style.height = Math.min(promptInput.scrollHeight, 180) + 'px';
     });
 }
 
+const sendPromptBtn = document.getElementById('btn-send-prompt');
+if (sendPromptBtn) {
+    sendPromptBtn.addEventListener('click', sendPrompt);
+}
+
+// Composer toolbar buttons
+document.getElementById('btn-new-session')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'newSession' });
+});
+document.getElementById('btn-switch-model-quick')?.addEventListener('click', () => {
+    switchTab('models');
+});
+document.getElementById('btn-stop-turn')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'cancelTurn' });
+});
+document.getElementById('btn-clear-chat')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'clearHistory' });
+});
+
+// ==========================================================================
+// Sessions Tab
+// ==========================================================================
+
+function renderSessions() {
+    const listContainer = document.getElementById('sessions-list');
+    if (!listContainer) return;
+
+    const searchInput = document.getElementById('sessions-search');
+    const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+    const filtered = sessions.filter(s => {
+        if (!query) return true;
+        return (s.title && s.title.toLowerCase().includes(query)) ||
+               (s.model && s.model.toLowerCase().includes(query)) ||
+               (s.id && s.id.toLowerCase().includes(query));
+    });
+
+    if (filtered.length === 0) {
+        listContainer.innerHTML = `<div class="empty-state"><p>No sessions found.</p></div>`;
+        return;
+    }
+
+    listContainer.innerHTML = filtered.map(s => {
+        const timeStr = formatRelativeTime(s.lastActive || s.updatedAt || s.startedAt);
+        const shortModel = (s.model || 'Agent').split('/').pop().replace(/:free$/, '');
+        return `
+            <div class="session-card" data-id="${escapeHtml(s.id || s.sessionId)}">
+                <div class="session-card-header">
+                    <span class="card-title">${escapeHtml(s.title || s.id)}</span>
+                    <span class="card-time">${escapeHtml(timeStr)}</span>
+                </div>
+                <div class="card-badges">
+                    <span class="chip-tag chip-model">${escapeHtml(shortModel)}</span>
+                    <span class="chip-tag chip-count">${s.messageCount || s.historyLen || 0} messages</span>
+                </div>
+                <div class="card-footer">
+                    <button class="btn-sm btn-resume-session" data-id="${escapeHtml(s.id || s.sessionId)}">▶ Resume Chat</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    listContainer.querySelectorAll('.btn-resume-session').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const sid = btn.getAttribute('data-id');
+            if (sid) {
+                vscode.postMessage({ type: 'loadSession', sessionId: sid });
+            }
+        });
+    });
+}
+
+document.getElementById('sessions-search')?.addEventListener('input', renderSessions);
+document.getElementById('btn-sessions-refresh')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'refreshDashboard' });
+});
+document.getElementById('btn-sessions-new')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'newSession' });
+    switchTab('chat');
+});
+
+// ==========================================================================
+// Skills Tab
+// ==========================================================================
+
+function renderSkills() {
+    const listContainer = document.getElementById('skills-list');
+    if (!listContainer) return;
+
+    const searchInput = document.getElementById('skills-search');
+    const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+    const filtered = skills.filter(s => {
+        if (!query) return true;
+        return (s.name && s.name.toLowerCase().includes(query)) ||
+               (s.description && s.description.toLowerCase().includes(query)) ||
+               (s.category && s.category.toLowerCase().includes(query));
+    });
+
+    if (filtered.length === 0) {
+        listContainer.innerHTML = `<div class="empty-state"><p>No skills found.</p></div>`;
+        return;
+    }
+
+    listContainer.innerHTML = filtered.map(s => {
+        const learnedBadge = s.isLearned ? `<span class="chip-tag chip-learned">🌟 Learned by Hermes</span>` : '';
+        const catBadge = s.category ? `<span class="chip-tag chip-count">${escapeHtml(s.category)}</span>` : '';
+        return `
+            <div class="skill-card">
+                <div class="skill-card-header">
+                    <span class="card-title">⚡ ${escapeHtml(s.name)}</span>
+                    <div class="card-badges">
+                        ${learnedBadge}
+                        ${catBadge}
+                    </div>
+                </div>
+                <div class="card-desc">${escapeHtml(s.description)}</div>
+                <div class="card-footer">
+                    <button class="btn-sm btn-open-skill" data-path="${escapeHtml(s.path)}">📄 Open SKILL.md</button>
+                    <button class="btn-sm btn-use-skill" data-name="${escapeHtml(s.name)}">⚡ Use in Chat</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    listContainer.querySelectorAll('.btn-open-skill').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const spath = btn.getAttribute('data-path');
+            if (spath) vscode.postMessage({ type: 'openSkillFile', skillPath: spath });
+        });
+    });
+
+    listContainer.querySelectorAll('.btn-use-skill').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const sname = btn.getAttribute('data-name');
+            if (sname) vscode.postMessage({ type: 'injectSkill', skillName: sname });
+        });
+    });
+}
+
+document.getElementById('skills-search')?.addEventListener('input', renderSkills);
+document.getElementById('btn-skills-refresh')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'refreshDashboard' });
+});
+
+// ==========================================================================
+// Models & Operators Tab (Form & GUI Switcher)
+// ==========================================================================
+
+function renderModels() {
+    if (!modelConfig) return;
+
+    const cur = modelConfig.current || {};
+    const providers = modelConfig.providers || [];
+
+    // 1. Active Model Card
+    const activeModelName = document.getElementById('active-model-name');
+    if (activeModelName) activeModelName.textContent = cur.model || 'Not configured';
+
+    const activeProviderName = document.getElementById('active-provider-name');
+    if (activeProviderName) activeProviderName.textContent = `Operator: ${(cur.provider || 'openrouter').toUpperCase()}`;
+
+    // 2. Populate Providers Dropdown
+    const provSelect = document.getElementById('select-provider');
+    if (provSelect && provSelect.children.length === 0) {
+        provSelect.innerHTML = providers.map(p => `
+            <option value="${escapeHtml(p.id)}" ${p.id === (cur.provider || 'openrouter') ? 'selected' : ''}>
+                ${escapeHtml(p.name)}
+            </option>
+        `).join('');
+
+        provSelect.addEventListener('change', () => {
+            selectedProviderId = provSelect.value;
+            updateProviderForm();
+        });
+    }
+
+    selectedProviderId = provSelect ? provSelect.value : (cur.provider || 'openrouter');
+    updateProviderForm();
+}
+
+function updateProviderForm() {
+    if (!modelConfig) return;
+    const providers = modelConfig.providers || [];
+    const prov = providers.find(p => p.id === selectedProviderId) || providers[0];
+    if (!prov) return;
+
+    // API Key status & input
+    const keyTag = document.getElementById('key-status-indicator');
+    const keyInput = document.getElementById('input-api-key');
+    const keyGroup = document.getElementById('group-api-key');
+    const baseUrlGroup = document.getElementById('group-base-url');
+    const baseUrlInput = document.getElementById('input-base-url');
+
+    if (prov.id === 'ollama') {
+        if (keyTag) {
+            keyTag.textContent = 'Local (No Key Needed)';
+            keyTag.className = 'key-status-tag configured';
+        }
+        if (keyInput) {
+            keyInput.value = '';
+            keyInput.disabled = true;
+            keyInput.placeholder = 'Local server at http://localhost:11434';
+        }
+    } else {
+        if (keyInput) keyInput.disabled = false;
+        if (prov.hasKey) {
+            if (keyTag) {
+                keyTag.textContent = `✓ Configured in .env (${prov.keyMasked})`;
+                keyTag.className = 'key-status-tag configured';
+            }
+            if (keyInput && !keyInput.value) {
+                keyInput.placeholder = `Current: ${prov.keyMasked} (leave blank to keep)`;
+            }
+        } else {
+            if (keyTag) {
+                keyTag.textContent = `⚠️ Key Missing (${prov.envVar || 'API Key'})`;
+                keyTag.className = 'key-status-tag missing';
+            }
+            if (keyInput) keyInput.placeholder = `Enter ${prov.envVar || 'API Key'}`;
+        }
+    }
+
+    // Base URL visibility for custom provider
+    if (baseUrlGroup) {
+        if (prov.id === 'custom' || prov.id === 'ollama') {
+            baseUrlGroup.style.display = 'flex';
+            if (baseUrlInput && !baseUrlInput.value) baseUrlInput.value = prov.baseUrl || '';
+        } else {
+            baseUrlGroup.style.display = 'none';
+        }
+    }
+
+    // Populate Models
+    populateModelSelect(prov);
+}
+
+function populateModelSelect(prov) {
+    const modelSelect = document.getElementById('select-model');
+    const countLabel = document.getElementById('model-count-label');
+    if (!modelSelect) return;
+
+    const allModels = prov.models || [];
+    let filtered = allModels;
+
+    if (selectedModelFilter === 'free') {
+        filtered = allModels.filter(m => m.id.endsWith(':free') || (m.tag && m.tag.toLowerCase().includes('free')));
+    } else if (selectedModelFilter === 'top') {
+        filtered = allModels.filter(m => m.tag && (m.tag.includes('Top') || m.tag.includes('Flagship') || m.tag.includes('Recommended') || m.tag.includes('Smart')));
+    } else if (selectedModelFilter === 'fast') {
+        filtered = allModels.filter(m => m.tag && (m.tag.includes('Fast') || m.tag.includes('Instant') || m.id.includes('flash') || m.id.includes('haiku') || m.id.includes('mini')));
+    }
+
+    if (countLabel) countLabel.textContent = `(${filtered.length} available)`;
+
+    const curDefault = modelConfig?.current?.model;
+    modelSelect.innerHTML = filtered.map(m => `
+        <option value="${escapeHtml(m.id)}" ${m.id === curDefault ? 'selected' : ''}>
+            ${escapeHtml(m.name || m.id)} ${m.tag ? '[' + escapeHtml(m.tag) + ']' : ''}
+        </option>
+    `).join('');
+
+    // If current model is not in list, add it
+    if (curDefault && !filtered.some(m => m.id === curDefault) && prov.id === modelConfig?.current?.provider) {
+        const opt = document.createElement('option');
+        opt.value = curDefault;
+        opt.textContent = `${curDefault} [Current]`;
+        opt.selected = true;
+        modelSelect.insertBefore(opt, modelSelect.firstChild);
+    }
+}
+
+// Filter chips
+document.querySelectorAll('#model-filter-chips .chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+        document.querySelectorAll('#model-filter-chips .chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        selectedModelFilter = chip.getAttribute('data-filter') || 'all';
+        if (modelConfig) {
+            const prov = (modelConfig.providers || []).find(p => p.id === selectedProviderId);
+            if (prov) populateModelSelect(prov);
+        }
+    });
+});
+
+// Custom model toggle
+const customCheck = document.getElementById('check-custom-model');
+const customInput = document.getElementById('input-custom-model');
+if (customCheck && customInput) {
+    customCheck.addEventListener('change', () => {
+        customInput.style.display = customCheck.checked ? 'block' : 'none';
+        if (customCheck.checked) customInput.focus();
+    });
+}
+
+// Key visibility toggle
+const toggleKeyBtn = document.getElementById('btn-toggle-key-visibility');
+const keyInputEl = document.getElementById('input-api-key');
+if (toggleKeyBtn && keyInputEl) {
+    toggleKeyBtn.addEventListener('click', () => {
+        keyInputEl.type = keyInputEl.type === 'password' ? 'text' : 'password';
+        toggleKeyBtn.textContent = keyInputEl.type === 'password' ? '👁️' : '🔒';
+    });
+}
+
+// Apply Model Button
+document.getElementById('btn-save-model-config')?.addEventListener('click', () => {
+    const provSelect = document.getElementById('select-provider');
+    const modelSelect = document.getElementById('select-model');
+    const keyInput = document.getElementById('input-api-key');
+    const baseUrlInput = document.getElementById('input-base-url');
+    const customCheck = document.getElementById('check-custom-model');
+    const customInput = document.getElementById('input-custom-model');
+    const feedback = document.getElementById('model-save-feedback');
+    const btn = document.getElementById('btn-save-model-config');
+
+    const provider = provSelect ? provSelect.value : 'openrouter';
+    let model = modelSelect ? modelSelect.value : '';
+    if (customCheck && customCheck.checked && customInput && customInput.value.trim()) {
+        model = customInput.value.trim();
+    }
+
+    if (!model) {
+        if (feedback) {
+            feedback.textContent = 'Please select or enter a model ID.';
+            feedback.className = 'feedback-msg error';
+        }
+        return;
+    }
+
+    const apiKey = keyInput ? keyInput.value.trim() : '';
+    const baseUrl = baseUrlInput ? baseUrlInput.value.trim() : '';
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="btn-icon">⏳</span><span>Applying & Connecting...</span>`;
+    }
+
+    vscode.postMessage({
+        type: 'saveModelConfig',
+        provider,
+        model,
+        apiKey: apiKey || undefined,
+        baseUrl: baseUrl || undefined
+    });
+
+    if (feedback) {
+        feedback.textContent = `Applying ${model} on ${provider}...`;
+        feedback.className = 'feedback-msg success';
+    }
+
+    setTimeout(() => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<span class="btn-icon">🚀</span><span>Apply & Start New Chat</span>`;
+        }
+    }, 4000);
+});
+
+// ==========================================================================
+// Settings Tab
+// ==========================================================================
+
+function renderSettings() {
+    const autoApproveSwitch = document.getElementById('setting-auto-approve');
+    if (autoApproveSwitch && appConfig) {
+        autoApproveSwitch.checked = !!appConfig.autoApprove;
+    }
+
+    const cwdLabel = document.getElementById('setting-cwd-label');
+    if (cwdLabel && appConfig) {
+        cwdLabel.textContent = appConfig.cwd || 'Workspace Root';
+    }
+}
+
+document.getElementById('setting-auto-approve')?.addEventListener('change', () => {
+    vscode.postMessage({ type: 'toggleAutoApprove' });
+});
+
+document.getElementById('btn-reconnect-hermes')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'reconnect' });
+});
+
+document.getElementById('btn-run-setup-terminal')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'runSetup' });
+});
+
+// ==========================================================================
+// Utilities
+// ==========================================================================
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
+}
+
+function formatRelativeTime(ts) {
+    if (!ts) return '';
+    const time = typeof ts === 'string' ? (isNaN(Number(ts)) ? new Date(ts).getTime() : Number(ts) * (ts.length === 10 ? 1000 : 1)) : (ts < 10000000000 ? ts * 1000 : ts);
+    if (!time || isNaN(time)) return '';
+
+    const diff = Math.floor((Date.now() - time) / 1000);
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    if (diff < 2592000) return `${Math.floor(diff / 86400)}d ago`;
+    return new Date(time).toLocaleDateString();
+}
+
 // Initial render
-render();
+renderAll();

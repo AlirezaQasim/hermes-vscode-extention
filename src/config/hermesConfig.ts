@@ -140,6 +140,48 @@ export class HermesDatabase {
         return this.getSessionMessages(sessionId);
     }
 
+    async getModelConfig(): Promise<any> {
+        return new Promise((resolve) => {
+            const hermesHome = getHermesHome();
+            const script = this.getScriptPath();
+            execFile('python', [script, 'models', hermesHome], { timeout: 10000 }, (err, stdout) => {
+                if (err) {
+                    this.logger.warn('Failed to query model config:', err);
+                    resolve(null);
+                    return;
+                }
+                try {
+                    const data = JSON.parse(stdout.trim() || '{}');
+                    resolve(data);
+                } catch (parseErr) {
+                    this.logger.error('Failed to parse model config JSON', parseErr);
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    async saveModelConfig(provider: string, model: string, apiKey?: string, baseUrl?: string): Promise<boolean> {
+        return new Promise((resolve) => {
+            const hermesHome = getHermesHome();
+            const script = this.getScriptPath();
+            const args = [script, 'save_model', provider, model, apiKey || '-', baseUrl || '-', hermesHome];
+            execFile('python', args, { timeout: 10000 }, (err, stdout) => {
+                if (err) {
+                    this.logger.error('Failed to save model config:', err);
+                    resolve(false);
+                    return;
+                }
+                try {
+                    const data = JSON.parse(stdout.trim() || '{}');
+                    resolve(data.success === true);
+                } catch {
+                    resolve(false);
+                }
+            });
+        });
+    }
+
     databaseExists(): boolean {
         return fs.existsSync(this.dbPath);
     }

@@ -71,46 +71,9 @@
         {
           "type": "webview",
           "id": "hermes.chat",
-          "name": "Hermes Chat",
+          "name": "Hermes",
           "icon": "$(comment-discussion)",
-          "contextualTitle": "Hermes Chat"
-        },
-        {
-          "type": "webview",
-          "id": "hermes.setup",
-          "name": "Setup & Status",
-          "icon": "$(gear)",
-          "contextualTitle": "Hermes Setup"
-        },
-        {
-          "id": "hermes.sessions",
-          "name": "Sessions",
-          "icon": "$(history)",
-          "contextualTitle": "Hermes Sessions"
-        },
-        {
-          "id": "hermes.skills",
-          "name": "Skills",
-          "icon": "$(symbol-method)",
-          "contextualTitle": "Hermes Skills"
-        },
-        {
-          "id": "hermes.tools",
-          "name": "Tools",
-          "icon": "$(tools)",
-          "contextualTitle": "Hermes Tools"
-        },
-        {
-          "id": "hermes.config",
-          "name": "Configuration",
-          "icon": "$(settings-gear)",
-          "contextualTitle": "Hermes Configuration"
-        },
-        {
-          "id": "hermes.connections",
-          "name": "Connections",
-          "icon": "$(plug)",
-          "contextualTitle": "Hermes Connections"
+          "contextualTitle": "Hermes Agent"
         }
       ]
     },
