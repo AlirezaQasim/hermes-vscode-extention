@@ -14,6 +14,7 @@ import { FileSystemHandler } from './handlers/fileSystemHandler';
 import { TerminalHandler } from './handlers/terminalHandler';
 import { Logger } from './utils/logger';
 import { getHermesSafeCwd } from './utils/hermesPaths';
+import { HermesDatabase } from './config/hermesConfig';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -145,6 +146,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }),
         vscode.commands.registerCommand('hermes.loadSession', async (sessionId: string) => {
             await loadSession(sessionId);
+        }),
+        vscode.commands.registerCommand('hermes.openSkillFile', async (skillPath: string) => {
+            await openSkillFile(skillPath);
+        }),
+        vscode.commands.registerCommand('hermes.injectSkill', async (skillName: string) => {
+            await injectSkill(skillName);
+        }),
+        vscode.commands.registerCommand('hermes.refreshSkills', async () => {
+            await refreshSkills();
         })
     );
 
@@ -206,42 +216,13 @@ async function connectToHermes(): Promise<void> {
 
         client.on('connected', async () => {
             ctx.isConnected = true;
-            ctx.currentSessionId = null;
             ctx.statusBar.setConnected();
             ctx.chatProvider.setConnected(true);
-            ctx.sessionsProvider.refresh();
             vscode.commands.executeCommand('setContext', 'hermes.isConnected', true);
             ctx.logger.info('Connected to Hermes ACP server');
 
-            // Load existing sessions from Hermes CLI/database
+            // Load existing sessions from Hermes database and attach to latest
             await loadExistingSessions();
-
-            // Auto-create a session if none exists
-            const sessions = ctx.sessionManager.listSessions();
-            if (sessions.length === 0) {
-                ctx.logger.info('No existing sessions found, creating new session...');
-                try {
-                    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-                    const sessionCwd = getHermesSafeCwd(ctx.config.get('cwd', '${workspaceFolder}'), workspaceFolder);
-                    if (ctx.client) {
-                        const session = await ctx.client.createSession(sessionCwd);
-                        ctx.currentSessionId = session.sessionId;
-                        ctx.chatProvider.setSession(session.sessionId);
-                        ctx.sessionsProvider.refresh();
-                        ctx.logger.info(`Created new session: ${session.sessionId}`);
-                    }
-                } catch (error) {
-                    ctx.logger.error('Failed to auto-create session', error);
-                }
-            } else {
-                // Load the most recent session
-                const latestSession = sessions[0];
-                if (latestSession) {
-                    ctx.currentSessionId = latestSession.sessionId;
-                    ctx.chatProvider.setSession(latestSession.sessionId);
-                    ctx.logger.info(`Loaded existing session: ${latestSession.sessionId}`);
-                }
-            }
         });
 
         client.on('disconnected', (reason: string) => {
@@ -289,28 +270,27 @@ async function connectToHermes(): Promise<void> {
 
 async function loadExistingSessions(): Promise<void> {
     const ctx = getExtensionContext();
-    if (!ctx || !ctx.client) return;
+    if (!ctx) return;
 
     try {
-        const sessions = await ctx.client.listSessions();
+        const sessions = await ctx.sessionsProvider.loadSessions();
         if (sessions && sessions.length > 0) {
-            ctx.logger.info(`Found ${sessions.length} existing Hermes sessions`);
+            ctx.logger.info(`Found ${sessions.length} existing Hermes sessions in database`);
             
             // Load sessions into session manager
             for (const session of sessions) {
                 ctx.sessionManager.loadSessionFromACP({
                     id: session.sessionId,
                     title: session.title,
-                    preview: session.preview,
+                    preview: session.title,
                     model: session.model,
                     cwd: session.cwd,
                     messageCount: session.historyLen,
-                    createdAt: new Date(session.updatedAt).getTime(),
-                    updatedAt: new Date(session.updatedAt).getTime()
+                    createdAt: typeof session.updatedAt === 'number' ? session.updatedAt : Date.now(),
+                    updatedAt: typeof session.updatedAt === 'number' ? session.updatedAt : Date.now()
                 });
             }
             
-            ctx.sessionsProvider.setSessions(sessions);
             ctx.sessionsProvider.refresh();
             
             // Auto-load the most recent session
@@ -318,40 +298,57 @@ async function loadExistingSessions(): Promise<void> {
             if (latestSession && !ctx.currentSessionId) {
                 await loadSession(latestSession.sessionId);
             }
-        } else {
+        } else if (ctx.client) {
             ctx.logger.info('No existing Hermes sessions found, creating new one');
             await createNewSession();
         }
     } catch (error) {
         ctx.logger.error('Failed to load existing sessions', error);
-        // Fallback to creating new session
-        await createNewSession();
+        if (ctx.client && !ctx.currentSessionId) {
+            await createNewSession();
+        }
     }
 }
 
 async function loadSession(sessionId: string): Promise<void> {
     const ctx = getExtensionContext();
-    if (!ctx || !ctx.client) return;
+    if (!ctx) return;
 
     try {
-        ctx.logger.info('Loading session', sessionId);
+        ctx.logger.info(`Loading session: ${sessionId}`);
         ctx.statusBar.setConnecting();
         
-        const cwd = ctx.config.get('cwd', vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd());
-        const session = await ctx.client.loadSession(sessionId, cwd);
-        
-        if (session) {
-            ctx.currentSessionId = session.sessionId;
-            ctx.sessionManager.setCurrentSession(session.sessionId);
-            ctx.chatProvider.setSession(session.sessionId);
-            ctx.sessionsProvider.refresh();
-            ctx.statusBar.setSession(session.sessionId);
-            ctx.logger.info('Loaded session', sessionId);
-            
-            // The session history will be streamed via sessionUpdate notifications
-        } else {
-            vscode.window.showErrorMessage(`Session ${sessionId} not found`);
+        // Find session metadata if available
+        const sessions = await ctx.sessionsProvider.loadSessions();
+        const sessionMeta = sessions.find(s => s.sessionId === sessionId);
+        const sessionTitle = sessionMeta?.title || sessionId.slice(0, 8);
+
+        // Fetch past messages from DB directly for instant rendering
+        const hermesDb = new HermesDatabase(ctx.logger);
+        const dbMessages = await hermesDb.getSessionMessages(sessionId);
+        ctx.logger.info(`Loaded ${dbMessages.length} messages from DB for session ${sessionId}`);
+
+        // Update chat provider with these messages
+        ctx.currentSessionId = sessionId;
+        ctx.sessionManager.setCurrentSession(sessionId);
+        ctx.chatProvider.loadMessages(sessionId, dbMessages, sessionTitle);
+        ctx.statusBar.setSession(sessionId);
+        ctx.sessionsProvider.refresh();
+
+        // Connect ACP to this session if client is connected
+        if (ctx.client && ctx.isConnected) {
+            try {
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                const configuredCwd = sessionMeta?.cwd || ctx.config.get('cwd', '${workspaceFolder}');
+                const sessionCwd = getHermesSafeCwd(configuredCwd, workspaceFolder);
+                await ctx.client.loadSession(sessionId, sessionCwd);
+                ctx.logger.info(`ACP client attached to session ${sessionId}`);
+            } catch (acpErr) {
+                ctx.logger.warn(`ACP session/load warning for ${sessionId}:`, acpErr);
+            }
         }
+        ctx.statusBar.setConnected();
+        vscode.commands.executeCommand('hermes.chat.focus');
     } catch (error) {
         ctx.logger.error('Failed to load session', error);
         vscode.window.showErrorMessage(`Failed to load session: ${error}`);
@@ -502,35 +499,94 @@ async function pickSkills(): Promise<void> {
     const ctx = getExtensionContext();
     if (!ctx) return;
 
-    const skillsPath = ctx.config.get('skillsPath', '~/.hermes/skills');
-    const skills = await ctx.skillsProvider.loadSkills(skillsPath);
+    const skills = await ctx.skillsProvider.loadSkills();
 
     const selected = await vscode.window.showQuickPick(skills.map(s => ({
-        label: s.name,
-        description: s.description,
+        label: `${s.isLearned ? '🌟 ' : ''}${s.name}`,
+        description: s.category ? `[${s.category}] ${s.description}` : s.description,
         detail: s.path,
         skill: s
     })), {
-        placeHolder: 'Select skills to inject (multi-select)',
+        placeHolder: 'Select skills to inject into current session (multi-select)',
         canPickMany: true
     });
 
     if (selected && selected.length > 0) {
-        await ctx.client?.injectSkills(ctx.currentSessionId!, selected.map(s => s.skill.name));
-        ctx.logger.info('Injected skills', selected.map(s => s.skill.name));
+        if (ctx.client && ctx.currentSessionId) {
+            await ctx.client.injectSkills(ctx.currentSessionId, selected.map(s => s.skill.name));
+            ctx.logger.info('Injected skills', selected.map(s => s.skill.name));
+            vscode.window.showInformationMessage(`Injected ${selected.length} skill(s) into current session.`);
+        } else {
+            vscode.window.showWarningMessage('Please connect to Hermes and start a session first.');
+        }
+    }
+}
+
+async function openSkillFile(skillPath: string): Promise<void> {
+    const ctx = getExtensionContext();
+    if (!skillPath) {
+        ctx?.logger.warn('No skillPath provided to openSkillFile');
+        return;
+    }
+
+    try {
+        if (!fs.existsSync(skillPath)) {
+            vscode.window.showWarningMessage(`Skill file not found at: ${skillPath}`);
+            return;
+        }
+
+        const doc = await vscode.workspace.openTextDocument(skillPath);
+        await vscode.window.showTextDocument(doc, { preview: false });
+        ctx?.logger.info(`Opened skill file: ${skillPath}`);
+    } catch (error) {
+        ctx?.logger.error('Failed to open skill file', error);
+        vscode.window.showErrorMessage(`Failed to open skill file: ${error}`);
+    }
+}
+
+async function injectSkill(skillName: string): Promise<void> {
+    const ctx = getExtensionContext();
+    if (!ctx) return;
+
+    if (!skillName) {
+        await pickSkills();
+        return;
+    }
+
+    try {
+        if (ctx.client && ctx.currentSessionId) {
+            await ctx.client.injectSkills(ctx.currentSessionId, [skillName]);
+            vscode.window.showInformationMessage(`Skill '${skillName}' injected into current session.`);
+        } else {
+            vscode.window.showWarningMessage('Please connect to Hermes and start a session first.');
+        }
+    } catch (error) {
+        ctx.logger.error(`Failed to inject skill ${skillName}`, error);
+        vscode.window.showErrorMessage(`Failed to inject skill: ${error}`);
     }
 }
 
 async function refreshSessions(): Promise<void> {
     const ctx = getExtensionContext();
-    if (!ctx || !ctx.client) return;
+    if (!ctx) return;
 
     try {
-        const sessions = await ctx.client.listSessions();
-        ctx.sessionsProvider.setSessions(sessions);
-        ctx.sessionsProvider.refresh();
+        await ctx.sessionsProvider.loadSessions();
+        vscode.window.showInformationMessage('Hermes sessions refreshed.');
     } catch (error) {
         ctx.logger.error('Failed to refresh sessions', error);
+    }
+}
+
+async function refreshSkills(): Promise<void> {
+    const ctx = getExtensionContext();
+    if (!ctx) return;
+
+    try {
+        await ctx.skillsProvider.loadSkills();
+        vscode.window.showInformationMessage('Hermes skills refreshed.');
+    } catch (error) {
+        ctx.logger.error('Failed to refresh skills', error);
     }
 }
 

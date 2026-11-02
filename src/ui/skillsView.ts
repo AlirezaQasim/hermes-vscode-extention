@@ -1,165 +1,137 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
 import type { Logger } from '../utils/logger';
-import { getHermesHome } from '../utils/hermesPaths';
+import { HermesDatabase, type SkillInfo } from '../config/hermesConfig';
 
-interface SkillInfo {
-    name: string;
-    description: string;
-    path: string;
-    category?: string;
-}
+type SkillTreeElement = SkillCategoryItem | SkillItem;
 
-export class SkillsViewProvider implements vscode.TreeDataProvider<SkillItem> {
+export class SkillsViewProvider implements vscode.TreeDataProvider<SkillTreeElement> {
     private logger: Logger;
+    private hermesDb: HermesDatabase;
     private skills: SkillInfo[] = [];
-    private onDidChangeTreeDataEmitter = new vscode.EventEmitter<SkillItem | undefined | null | void>();
+    private isLoading = false;
+    private onDidChangeTreeDataEmitter = new vscode.EventEmitter<SkillTreeElement | undefined | null | void>();
     readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
 
     constructor(private context: vscode.ExtensionContext, logger: Logger) {
         this.logger = logger;
+        this.hermesDb = new HermesDatabase(logger);
     }
 
     refresh(): void {
         this.onDidChangeTreeDataEmitter.fire();
     }
 
-    async loadSkills(skillsPath: string): Promise<SkillInfo[]> {
-        let expandedPath = skillsPath ? skillsPath.replace('~', process.env.HOME || process.env.USERPROFILE || '') : '';
-        
-        if (!expandedPath || !fs.existsSync(expandedPath)) {
-            const hermesHomeSkills = path.join(getHermesHome(), 'skills');
-            if (fs.existsSync(hermesHomeSkills)) {
-                expandedPath = hermesHomeSkills;
-            } else {
-                this.logger.warn(`Skills path does not exist: ${expandedPath}`);
-                return [];
-            }
-        }
-
-        const skills: SkillInfo[] = [];
-        
+    async loadSkills(_customSkillsPath?: string): Promise<SkillInfo[]> {
+        if (this.isLoading) return this.skills;
+        this.isLoading = true;
         try {
-            const categories = fs.readdirSync(expandedPath, { withFileTypes: true })
-                .filter(d => d.isDirectory())
-                .map(d => d.name);
-
-            for (const category of categories) {
-                const categoryPath = path.join(expandedPath, category);
-                const skillDirs = fs.readdirSync(categoryPath, { withFileTypes: true })
-                    .filter(d => d.isDirectory())
-                    .map(d => d.name);
-
-                for (const skillName of skillDirs) {
-                    const skillPath = path.join(categoryPath, skillName);
-                    const skillFile = path.join(skillPath, 'SKILL.md');
-                    
-                    if (fs.existsSync(skillFile)) {
-                        const content = fs.readFileSync(skillFile, 'utf8');
-                        const description = this.extractDescription(content);
-                        skills.push({
-                            name: skillName,
-                            description: description || 'No description',
-                            path: skillPath,
-                            category
-                        });
-                    }
-                }
-            }
+            const skills = await this.hermesDb.getSkills();
+            this.skills = skills;
         } catch (error) {
             this.logger.error('Failed to load skills', error);
+        } finally {
+            this.isLoading = false;
+            this.refresh();
         }
-
-        this.skills = skills;
-        this.refresh();
-        return skills;
+        return this.skills;
     }
 
-    private extractDescription(content: string): string | null {
-        const lines = content.split('\n');
-        let inFrontmatter = false;
-        let description = '';
-
-        for (const line of lines) {
-            if (line.trim() === '---') {
-                if (!inFrontmatter) {
-                    inFrontmatter = true;
-                } else {
-                    break;
-                }
-                continue;
-            }
-
-            if (inFrontmatter && line.startsWith('description:')) {
-                description = line.substring('description:'.length).trim();
-                if (description.startsWith('"') && description.endsWith('"')) {
-                    description = description.slice(1, -1);
-                }
-                break;
-            }
-        }
-
-        return description || null;
-    }
-
-    getTreeItem(element: SkillItem): vscode.TreeItem {
+    getTreeItem(element: SkillTreeElement): vscode.TreeItem {
         return element;
     }
 
-    getChildren(element?: SkillItem): Thenable<SkillItem[]> {
+    async getChildren(element?: SkillTreeElement): Promise<SkillTreeElement[]> {
+        if (this.skills.length === 0 && !this.isLoading) {
+            await this.loadSkills();
+        }
+
         if (!element) {
-            // Group by category
+            if (this.skills.length === 0) {
+                const empty = new vscode.TreeItem('No skills found');
+                empty.description = 'Skills will appear as Hermes installs or creates them';
+                empty.iconPath = new vscode.ThemeIcon('info');
+                return [empty as any];
+            }
+
+            const items: SkillTreeElement[] = [];
+
+            // 1. Learned / Custom skills section at top
+            const learned = this.skills.filter(s => s.isLearned);
+            if (learned.length > 0) {
+                items.push(new SkillCategoryItem('Learned & Custom Skills', learned, true));
+            }
+
+            // 2. Group standard skills by category
             const categories = new Map<string, SkillInfo[]>();
             for (const skill of this.skills) {
-                const cat = skill.category || 'Uncategorized';
+                if (skill.isLearned) continue; // already in learned section
+                const cat = skill.category || 'other';
                 if (!categories.has(cat)) {
                     categories.set(cat, []);
                 }
                 categories.get(cat)!.push(skill);
             }
 
-            const items: SkillItem[] = [];
-            for (const [category, skills] of categories) {
-                items.push(new CategoryItem(category, skills));
+            for (const [catName, catSkills] of categories.entries()) {
+                items.push(new SkillCategoryItem(formatCategoryName(catName), catSkills, false));
             }
-            return Promise.resolve(items);
+
+            return items;
         }
 
-        if (element instanceof CategoryItem) {
-            return Promise.resolve(element.skills.map(s => new SkillItem(s)));
+        if (element instanceof SkillCategoryItem) {
+            return element.skills.map(s => new SkillItem(s));
         }
 
-        return Promise.resolve([]);
+        return [];
     }
 
-    getParent(_element: SkillItem): vscode.ProviderResult<SkillItem> {
+    getParent(_element: SkillTreeElement): vscode.ProviderResult<SkillTreeElement> {
         return null;
     }
 }
 
-class CategoryItem extends vscode.TreeItem {
-    constructor(
-        public readonly category: string,
-        public readonly skills: SkillInfo[]
-    ) {
-        super(category, vscode.TreeItemCollapsibleState.Expanded);
-        this.contextValue = 'skillCategory';
-        this.iconPath = new vscode.ThemeIcon('folder');
+class SkillCategoryItem extends vscode.TreeItem {
+    public readonly skills: SkillInfo[];
+
+    constructor(title: string, skills: SkillInfo[], isLearned: boolean) {
+        super(
+            title,
+            isLearned ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed
+        );
+        this.skills = skills;
+        this.description = `(${skills.length})`;
+        this.contextValue = isLearned ? 'learnedSkillsCategory' : 'skillCategory';
+        this.iconPath = isLearned ? new vscode.ThemeIcon('sparkle') : new vscode.ThemeIcon('folder');
     }
 }
 
 class SkillItem extends vscode.TreeItem {
-    constructor(skill: SkillInfo) {
+    constructor(public readonly skill: SkillInfo) {
         super(skill.name, vscode.TreeItemCollapsibleState.None);
-        this.tooltip = `${skill.name}\n${skill.description}\nCategory: ${skill.category}\nPath: ${skill.path}`;
+
         this.description = skill.description;
+        this.tooltip = new vscode.MarkdownString(
+            `### ⚡ ${skill.name} ${skill.isLearned ? '*(Learned by Hermes)*' : ''}\n\n` +
+            `${skill.description}\n\n` +
+            `- **Category:** \`${skill.category}\`\n` +
+            `- **File:** \`${skill.path}\`\n\n` +
+            `*Click to open and edit SKILL.md in VS Code.*`
+        );
         this.contextValue = 'skill';
+        this.iconPath = skill.isLearned ? new vscode.ThemeIcon('star-full') : new vscode.ThemeIcon('symbol-method');
+
         this.command = {
-            command: 'hermes.injectSkill',
-            title: 'Inject Skill',
-            arguments: [skill.name]
+            command: 'hermes.openSkillFile',
+            title: 'Open Skill File',
+            arguments: [skill.path]
         };
-        this.iconPath = new vscode.ThemeIcon('symbol-method');
     }
+}
+
+function formatCategoryName(slug: string): string {
+    return slug
+        .split('-')
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
 }

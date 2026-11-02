@@ -3,6 +3,7 @@ const vscode = acquireVsCodeApi();
 let messages = [];
 let connected = false;
 let sessionId = null;
+let sessionTitle = null;
 let tokenUsage = null;
 
 window.addEventListener('message', event => {
@@ -12,6 +13,7 @@ window.addEventListener('message', event => {
             messages = message.messages || [];
             connected = message.connected;
             sessionId = message.sessionId;
+            sessionTitle = message.sessionTitle || null;
             tokenUsage = message.tokenUsage;
             render();
             break;
@@ -41,12 +43,27 @@ function renderHeader() {
     if (sessionInfo) {
         let html = '';
         if (sessionId) {
-            html += `<span class="session-id">${sessionId}</span>`;
+            const displayTitle = sessionTitle || sessionId.slice(0, 8);
+            const fullTitle = sessionTitle ? `${sessionTitle} (${sessionId})` : sessionId;
+            html += `<span class="session-id" title="${escapeHtml(fullTitle)}">${escapeHtml(displayTitle)}</span>`;
         }
         if (tokenUsage) {
-            html += `<span class="tokens">${tokenUsage.total} tokens</span>`;
+            html += `<span class="tokens">${tokenUsage.total || (tokenUsage.promptTokens + tokenUsage.completionTokens) || 0} tokens</span>`;
         }
         sessionInfo.innerHTML = html;
+
+        const badge = sessionInfo.querySelector('.session-id');
+        if (badge) {
+            badge.addEventListener('click', () => {
+                if (sessionId) {
+                    navigator.clipboard.writeText(sessionId).then(() => {
+                        const original = badge.textContent;
+                        badge.textContent = '✓ Copied ID';
+                        setTimeout(() => { badge.textContent = original; }, 1500);
+                    });
+                }
+            });
+        }
     }
 }
 
@@ -54,35 +71,127 @@ function renderMessages() {
     const container = document.getElementById('messages');
     if (!container) return;
 
+    if (!messages || messages.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">⚚</div>
+                <h2>Hermes AI Assistant</h2>
+                <p>Autonomous AI agent powered by local knowledge, custom skills, and ACP.</p>
+                <div class="quick-prompts">
+                    <button class="quick-prompt" data-prompt="Explain this project architecture and codebase structure">
+                        <span>🔍</span>
+                        <span>Explain Project Architecture</span>
+                    </button>
+                    <button class="quick-prompt" data-prompt="Review recent git commits and current git status">
+                        <span>📜</span>
+                        <span>Review Git Status & Commits</span>
+                    </button>
+                    <button class="quick-prompt" data-prompt="Scan for potential bugs, errors, or performance bottlenecks in this workspace">
+                        <span>⚡</span>
+                        <span>Find Bugs & Optimize Code</span>
+                    </button>
+                    <button class="quick-prompt" data-prompt="List available skills and how they can be used for this project">
+                        <span>🧠</span>
+                        <span>Explore Available Skills</span>
+                    </button>
+                </div>
+            </div>
+        `;
+
+        container.querySelectorAll('.quick-prompt').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const prompt = btn.getAttribute('data-prompt');
+                if (prompt) {
+                    const input = document.getElementById('prompt-input');
+                    if (input) {
+                        input.value = prompt;
+                        sendPrompt();
+                    }
+                }
+            });
+        });
+        return;
+    }
+
     container.innerHTML = messages.map(msg => renderMessage(msg)).join('');
 
     // Scroll to bottom
     container.scrollTop = container.scrollHeight;
 
     // Apply syntax highlighting
-    container.querySelectorAll('pre code').forEach(block => {
-        hljs.highlightElement(block);
+    if (typeof hljs !== 'undefined') {
+        container.querySelectorAll('pre code').forEach(block => {
+            try {
+                hljs.highlightElement(block);
+            } catch (e) {
+                // Ignore highlight errors
+            }
+        });
+    }
+
+    // Wrap pre/code blocks with header & copy button
+    container.querySelectorAll('pre').forEach(pre => {
+        if (pre.closest('.code-block-wrapper')) return;
+
+        const code = pre.querySelector('code');
+        let lang = 'code';
+        if (code) {
+            const langClass = Array.from(code.classList).find(c => c.startsWith('language-'));
+            if (langClass) {
+                lang = langClass.replace('language-', '');
+            }
+        }
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'code-block-wrapper';
+
+        const blockHeader = document.createElement('div');
+        blockHeader.className = 'code-block-header';
+        blockHeader.innerHTML = `<span>${escapeHtml(lang)}</span><button class="copy-button" title="Copy code">📋 Copy</button>`;
+
+        const copyBtn = blockHeader.querySelector('.copy-button');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', () => {
+                const text = code ? code.innerText : pre.innerText;
+                navigator.clipboard.writeText(text).then(() => {
+                    copyBtn.textContent = '✓ Copied';
+                    setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 2000);
+                });
+            });
+        }
+
+        pre.parentNode.insertBefore(wrapper, pre);
+        wrapper.appendChild(blockHeader);
+        wrapper.appendChild(pre);
     });
 }
 
 function renderMessage(msg) {
-    const time = new Date(msg.timestamp).toLocaleTimeString();
-    const roleClass = `role-${msg.role}`;
+    const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    const roleClass = `role-${msg.role || 'assistant'}`;
+    const roleDisplay = msg.role === 'assistant' ? 'Hermes' : (msg.role ? msg.role.charAt(0).toUpperCase() + msg.role.slice(1) : 'Assistant');
 
     let contentHtml = '';
     if (msg.role === 'tool') {
-        contentHtml = `<pre><code>${escapeHtml(JSON.stringify(msg.content, null, 2))}</code></pre>`;
+        contentHtml = `<pre><code>${escapeHtml(typeof msg.content === 'object' ? JSON.stringify(msg.content, null, 2) : String(msg.content))}</code></pre>`;
+    } else if (typeof marked !== 'undefined') {
+        try {
+            contentHtml = marked.parse(msg.content || '');
+        } catch {
+            contentHtml = escapeHtml(msg.content || '');
+        }
     } else {
-        contentHtml = marked.parse(msg.content);
+        contentHtml = escapeHtml(msg.content || '');
     }
 
     let thinkingHtml = '';
     if (msg.thinking) {
+        const thinkingParsed = typeof marked !== 'undefined' ? marked.parse(msg.thinking) : escapeHtml(msg.thinking);
         thinkingHtml = `
             <div class="thinking">
                 <details open>
                     <summary>💭 Thinking</summary>
-                    <div class="thinking-content">${marked.parse(msg.thinking)}</div>
+                    <div class="thinking-content">${thinkingParsed}</div>
                 </details>
             </div>
         `;
@@ -94,10 +203,10 @@ function renderMessage(msg) {
     }
 
     return `
-        <div class="message ${roleClass}" data-id="${msg.id}">
+        <div class="message ${roleClass}" data-id="${escapeHtml(msg.id || '')}">
             <div class="message-header">
-                <span class="role">${msg.role}</span>
-                <span class="time">${time}</span>
+                <span class="role-badge">${escapeHtml(roleDisplay)}</span>
+                <span class="time">${escapeHtml(time)}</span>
             </div>
             <div class="message-content">
                 ${contentHtml}
@@ -135,9 +244,9 @@ function renderToolCall(tc) {
     return `
         <div class="tool-call ${statusClass}">
             <div class="tool-header">
-                <span class="tool-kind">${tc.kind || 'tool'}</span>
-                <span class="tool-name">${tc.name}</span>
-                <span class="tool-title">${tc.title || ''}</span>
+                <span class="tool-kind">${escapeHtml(tc.kind || 'tool')}</span>
+                <span class="tool-name">${escapeHtml(tc.name || '')}</span>
+                <span class="tool-title">${escapeHtml(tc.title || '')}</span>
                 <span class="tool-status">${statusIcon}</span>
             </div>
             <div class="tool-args">${argsHtml}</div>
@@ -155,19 +264,21 @@ function renderComposer() {
     }
     if (input) {
         input.disabled = !connected;
-        input.placeholder = connected ? 'Type your message...' : 'Connect to Hermes first';
+        input.placeholder = connected ? 'Ask Hermes anything... (Enter to send, Shift+Enter for newline)' : 'Connect to Hermes first';
     }
 }
 
 function escapeHtml(text) {
+    if (!text) return '';
     const div = document.createElement('div');
-    div.textContent = text;
+    div.textContent = String(text);
     return div.innerHTML;
 }
 
 // Event listeners
 document.addEventListener('click', e => {
     const target = e.target;
+    if (!target) return;
 
     if (target.id === 'btn-send') {
         sendPrompt();
@@ -198,7 +309,7 @@ function sendPrompt() {
     const input = document.getElementById('prompt-input');
     if (!input || !input.value.trim()) return;
 
-    const text = input.value;
+    const text = input.value.trim();
     input.value = '';
     input.style.height = 'auto';
 
@@ -206,11 +317,11 @@ function sendPrompt() {
 }
 
 // Auto-resize textarea
-const input = document.getElementById('prompt-input');
-if (input) {
-    input.addEventListener('input', () => {
-        input.style.height = 'auto';
-        input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+const promptInput = document.getElementById('prompt-input');
+if (promptInput) {
+    promptInput.addEventListener('input', () => {
+        promptInput.style.height = 'auto';
+        promptInput.style.height = Math.min(promptInput.scrollHeight, 200) + 'px';
     });
 }
 

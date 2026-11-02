@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Logger } from '../utils/logger';
+import { getHermesSafeCwd } from '../utils/hermesPaths';
 
 interface ChatMessage {
     id: string;
@@ -21,6 +22,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private messages: ChatMessage[] = [];
     private connected = false;
     private currentSessionId: string | null = null;
+    private sessionTitle: string = '';
     private tokenUsage: { prompt: number; completion: number; total: number } | null = null;
     private pendingAgentMessage: string = '';
     private pendingThinking: string = '';
@@ -55,9 +57,28 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.refresh();
     }
 
-    setSession(sessionId: string): void {
+    setSession(sessionId: string, sessionTitle?: string): void {
         this.currentSessionId = sessionId;
+        this.sessionTitle = sessionTitle || '';
         this.messages = [];
+        this.pendingAgentMessage = '';
+        this.pendingThinking = '';
+        this.refresh();
+    }
+
+    loadMessages(sessionId: string, messages: any[], sessionTitle?: string): void {
+        this.currentSessionId = sessionId;
+        this.sessionTitle = sessionTitle || '';
+        this.messages = messages.map(msg => ({
+            id: msg.id || `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            role: (msg.role || 'assistant') as any,
+            content: msg.content || '',
+            timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
+            toolCalls: msg.toolCalls,
+            thinking: msg.thinking
+        }));
+        this.pendingAgentMessage = '';
+        this.pendingThinking = '';
         this.refresh();
     }
 
@@ -210,14 +231,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.pendingThinking = '';
 
         const ctx = this.getContext ? this.getContext() : (global as any).hermesExtensionContext;
-        if (ctx?.client && this.currentSessionId) {
+        if (ctx?.client) {
             try {
+                if (!this.currentSessionId) {
+                    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                    const cwd = getHermesSafeCwd(ctx.config.get('cwd', '${workspaceFolder}'), workspaceFolder);
+                    const session = await ctx.client.createSession(cwd);
+                    this.currentSessionId = session.sessionId;
+                    this.sessionTitle = session.title || session.sessionId.slice(0, 8);
+                    ctx.currentSessionId = session.sessionId;
+                    ctx.sessionManager.setCurrentSession(session.sessionId);
+                    ctx.statusBar.setSession(session.sessionId);
+                    ctx.sessionsProvider.refresh();
+                }
                 await ctx.client.sendPrompt(this.currentSessionId, text);
             } catch (error) {
                 this.logger.error('Failed to send prompt', error);
                 this.addMessage({ role: 'system', content: `Error: ${error}` });
             }
-        } else if (!ctx?.client) {
+        } else {
             this.addMessage({ role: 'system', content: 'Hermes is not connected. Click "Connect to Hermes" first.' });
         }
     }
@@ -232,9 +264,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private async createNewSession(): Promise<void> {
         const ctx = this.getContext ? this.getContext() : (global as any).hermesExtensionContext;
         if (ctx?.client) {
-            const cwd = ctx.config.get('cwd', vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd());
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const cwd = getHermesSafeCwd(ctx.config.get('cwd', '${workspaceFolder}'), workspaceFolder);
             const session = await ctx.client.createSession(cwd);
-            this.setSession(session.sessionId);
+            this.setSession(session.sessionId, session.title || session.sessionId.slice(0, 8));
+            ctx.currentSessionId = session.sessionId;
+            ctx.sessionManager.setCurrentSession(session.sessionId);
+            ctx.statusBar.setSession(session.sessionId);
+            ctx.sessionsProvider.refresh();
         }
     }
 
@@ -253,6 +290,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 messages: this.messages,
                 connected: this.connected,
                 sessionId: this.currentSessionId,
+                sessionTitle: this.sessionTitle,
                 tokenUsage: this.tokenUsage
             });
         }

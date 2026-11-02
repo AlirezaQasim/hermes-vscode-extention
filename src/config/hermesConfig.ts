@@ -1,6 +1,7 @@
 import type { Logger } from '../utils/logger';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFile } from 'child_process';
 import { getHermesHome } from '../utils/hermesPaths';
 
 export interface HermesSession {
@@ -13,6 +14,16 @@ export interface HermesSession {
     messageCount: number;
     createdAt: number;
     updatedAt: number;
+    source?: string;
+}
+
+export interface SkillInfo {
+    name: string;
+    description: string;
+    category: string;
+    path: string;
+    dirPath: string;
+    isLearned?: boolean;
 }
 
 export class HermesDatabase {
@@ -29,22 +40,104 @@ export class HermesDatabase {
         return path.join(hermesHome, 'state.db');
     }
 
-    async getSessions(): Promise<HermesSession[]> {
-        try {
-            if (!fs.existsSync(this.dbPath)) {
-                this.logger.debug('Hermes database not found', this.dbPath);
-                return [];
+    private getScriptPath(): string {
+        const candidates = [
+            path.join(__dirname, '..', 'utils', 'hermesDb.py'),
+            path.join(__dirname, 'utils', 'hermesDb.py'),
+            path.join(__dirname, '..', 'src', 'utils', 'hermesDb.py')
+        ];
+        for (const p of candidates) {
+            if (fs.existsSync(p)) {
+                return p;
             }
-            // ACP listSessions is the primary source of truth for sessions.
-            return [];
-        } catch (error) {
-            this.logger.error('Failed to read Hermes database', error);
-            return [];
         }
+        return candidates[0] || path.join(__dirname, '..', 'utils', 'hermesDb.py');
     }
 
-    async loadSessionHistory(_sessionId: string): Promise<any[]> {
-        return [];
+    async getSessions(limit: number = 50): Promise<HermesSession[]> {
+        return new Promise((resolve) => {
+            if (!fs.existsSync(this.dbPath)) {
+                this.logger.debug('Hermes database not found', this.dbPath);
+                resolve([]);
+                return;
+            }
+
+            const script = this.getScriptPath();
+            execFile('python', [script, 'list', this.dbPath, String(limit)], { timeout: 10000 }, (err, stdout) => {
+                if (err) {
+                    this.logger.warn('Failed to query sessions via python db helper:', err);
+                    resolve([]);
+                    return;
+                }
+                try {
+                    const raw = JSON.parse(stdout.trim() || '[]');
+                    const sessions: HermesSession[] = raw.map((r: any) => ({
+                        id: r.id,
+                        title: r.title,
+                        model: r.model,
+                        cwd: r.cwd,
+                        messageCount: r.messageCount,
+                        source: r.source,
+                        createdAt: r.startedAt ? r.startedAt * 1000 : Date.now(),
+                        updatedAt: r.lastActive ? r.lastActive * 1000 : Date.now()
+                    }));
+                    resolve(sessions);
+                } catch (parseErr) {
+                    this.logger.error('Failed to parse sessions JSON', parseErr);
+                    resolve([]);
+                }
+            });
+        });
+    }
+
+    async getSessionMessages(sessionId: string): Promise<any[]> {
+        return new Promise((resolve) => {
+            if (!fs.existsSync(this.dbPath)) {
+                resolve([]);
+                return;
+            }
+
+            const script = this.getScriptPath();
+            execFile('python', [script, 'messages', this.dbPath, sessionId], { timeout: 10000 }, (err, stdout) => {
+                if (err) {
+                    this.logger.warn(`Failed to query messages for session ${sessionId}:`, err);
+                    resolve([]);
+                    return;
+                }
+                try {
+                    const messages = JSON.parse(stdout.trim() || '[]');
+                    resolve(messages);
+                } catch (parseErr) {
+                    this.logger.error('Failed to parse messages JSON', parseErr);
+                    resolve([]);
+                }
+            });
+        });
+    }
+
+    async getSkills(): Promise<SkillInfo[]> {
+        return new Promise((resolve) => {
+            const hermesHome = getHermesHome();
+            const script = this.getScriptPath();
+            execFile('python', [script, 'skills', hermesHome], { timeout: 10000 }, (err, stdout) => {
+                if (err) {
+                    this.logger.warn('Failed to query skills via python db helper:', err);
+                    resolve([]);
+                    return;
+                }
+                try {
+                    const skills: SkillInfo[] = JSON.parse(stdout.trim() || '[]');
+                    resolve(skills);
+                } catch (parseErr) {
+                    this.logger.error('Failed to parse skills JSON', parseErr);
+                    resolve([]);
+                }
+            });
+        });
+    }
+
+    async loadSessionHistory(sessionId: string): Promise<any[]> {
+        return this.getSessionMessages(sessionId);
     }
 
     databaseExists(): boolean {

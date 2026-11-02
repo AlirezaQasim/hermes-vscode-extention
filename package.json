@@ -115,7 +115,7 @@
       ]
     },
     "viewsContainers": {
-      "activitybar": [
+      "secondarySidebar": [
         {
           "id": "hermes",
           "title": "Hermes",
@@ -270,6 +270,30 @@
         "category": "Hermes"
       },
       {
+        "command": "hermes.loadSession",
+        "title": "Resume Session",
+        "icon": "$(play)",
+        "category": "Hermes"
+      },
+      {
+        "command": "hermes.openSkillFile",
+        "title": "Open Skill File",
+        "icon": "$(go-to-file)",
+        "category": "Hermes"
+      },
+      {
+        "command": "hermes.injectSkill",
+        "title": "Use Skill in Current Session",
+        "icon": "$(symbol-method)",
+        "category": "Hermes"
+      },
+      {
+        "command": "hermes.refreshSkills",
+        "title": "Refresh Skills",
+        "icon": "$(refresh)",
+        "category": "Hermes"
+      },
+      {
         "command": "hermes.openSettings",
         "title": "Open Settings",
         "icon": "$(gear)",
@@ -293,17 +317,39 @@
         {
           "command": "hermes.newSession",
           "when": "view == hermes.sessions",
-          "group": "navigation"
+          "group": "navigation@1"
         },
         {
           "command": "hermes.refreshSessions",
           "when": "view == hermes.sessions",
-          "group": "navigation"
+          "group": "navigation@2"
+        },
+        {
+          "command": "hermes.refreshSkills",
+          "when": "view == hermes.skills",
+          "group": "navigation@1"
         },
         {
           "command": "hermes.pickSkill",
           "when": "view == hermes.skills",
-          "group": "navigation"
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "hermes.loadSession",
+          "when": "view == hermes.sessions && viewItem == session",
+          "group": "inline"
+        },
+        {
+          "command": "hermes.openSkillFile",
+          "when": "view == hermes.skills && viewItem == skill",
+          "group": "inline@1"
+        },
+        {
+          "command": "hermes.injectSkill",
+          "when": "view == hermes.skills && viewItem == skill",
+          "group": "inline@2"
         }
       ],
       "editor/title": [

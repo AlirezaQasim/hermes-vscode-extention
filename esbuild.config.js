@@ -45,6 +45,17 @@ esbuild.build({
         }
     });
 
+    // Copy utilities
+    const utilsDir = './out/utils';
+    fs.mkdirSync(utilsDir, { recursive: true });
+    ['hermesDb.py'].forEach(file => {
+        const src = `./src/utils/${file}`;
+        const dest = `${utilsDir}/${file}`;
+        if (fs.existsSync(src)) {
+            fs.copyFileSync(src, dest);
+        }
+    });
+
     // Copy UI assets (chatView.css, chatView.js, etc.)
     const uiDir = './out/ui';
     fs.mkdirSync(uiDir, { recursive: true });
