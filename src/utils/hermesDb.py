@@ -67,7 +67,7 @@ def get_db(db_path_str=None):
     except Exception:
         return None
 
-def list_sessions(db_path_str=None, limit=50):
+def list_sessions(db_path_str=None, limit=100):
     conn = get_db(db_path_str)
     if not conn:
         print(json.dumps([]))
@@ -76,7 +76,8 @@ def list_sessions(db_path_str=None, limit=50):
         cursor = conn.cursor()
         rows = cursor.execute("""
             SELECT id, title, model, cwd, message_count, source,
-                   started_at, COALESCE(last_activity_at, started_at) as last_active
+                   started_at, COALESCE(last_activity_at, started_at) as last_active,
+                   COALESCE(archived, 0) as archived
             FROM sessions
             WHERE message_count > 0
             ORDER BY last_active DESC
@@ -93,12 +94,47 @@ def list_sessions(db_path_str=None, limit=50):
                 "messageCount": r["message_count"] or 0,
                 "source": r["source"] or "cli",
                 "startedAt": r["started_at"] or 0,
-                "lastActive": r["last_active"] or 0
+                "lastActive": r["last_active"] or 0,
+                "archived": bool(r["archived"])
             })
         print(json.dumps(result))
     except Exception as e:
         sys.stderr.write(f"Error listing sessions: {e}\n")
         print(json.dumps([]))
+
+def archive_session(db_path_str, session_id, archive=True):
+    conn = get_db(db_path_str)
+    if not conn:
+        print(json.dumps({"success": False, "error": "Database not accessible"}))
+        return
+    try:
+        val = 1 if archive else 0
+        cursor = conn.cursor()
+        cursor.execute("UPDATE sessions SET archived = ? WHERE id = ?", (val, session_id))
+        conn.commit()
+        print(json.dumps({"success": True, "sessionId": session_id, "archived": bool(val)}))
+    except Exception as e:
+        sys.stderr.write(f"Error archiving session: {e}\n")
+        print(json.dumps({"success": False, "error": str(e)}))
+
+def delete_session(db_path_str, session_id):
+    conn = get_db(db_path_str)
+    if not conn:
+        print(json.dumps({"success": False, "error": "Database not accessible"}))
+        return
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+        try:
+            cursor.execute("DELETE FROM session_model_usage WHERE session_id = ?", (session_id,))
+        except Exception:
+            pass
+        cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        conn.commit()
+        print(json.dumps({"success": True, "sessionId": session_id, "deleted": True}))
+    except Exception as e:
+        sys.stderr.write(f"Error deleting session: {e}\n")
+        print(json.dumps({"success": False, "error": str(e)}))
 
 def get_messages(db_path_str, session_id):
     conn = get_db(db_path_str)
@@ -662,6 +698,37 @@ if __name__ == "__main__":
     elif action == "models":
         h_home = sys.argv[2] if len(sys.argv) > 2 else ""
         get_model_config(h_home)
+    elif action == "archive":
+        args = sys.argv[2:]
+        if len(args) == 1:
+            db_path = ""
+            sid = args[0]
+            unarch = False
+        elif len(args) >= 2 and args[1] in {"unarchive", "0", "restore", "false"}:
+            db_path = ""
+            sid = args[0]
+            unarch = True
+        elif len(args) >= 2 and Path(args[0]).exists():
+            db_path = args[0]
+            sid = args[1]
+            unarch = len(args) > 2 and args[2] in {"unarchive", "0", "restore", "false"}
+        else:
+            db_path = ""
+            sid = args[0]
+            unarch = False
+        archive_session(db_path, sid, archive=not unarch)
+    elif action == "delete":
+        args = sys.argv[2:]
+        if len(args) == 1:
+            db_path = ""
+            sid = args[0]
+        elif len(args) >= 2 and Path(args[0]).exists():
+            db_path = args[0]
+            sid = args[1]
+        else:
+            db_path = ""
+            sid = args[0]
+        delete_session(db_path, sid)
     elif action == "save_model":
         args = sys.argv[2:]
         if len(args) > 0 and Path(args[0]).is_dir():

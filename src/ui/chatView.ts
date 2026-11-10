@@ -251,6 +251,46 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     await vscode.commands.executeCommand('hermes.loadSession', message.sessionId);
                 }
                 break;
+            case 'archiveSession':
+                if (message.sessionId) {
+                    const success = await this.hermesDb.archiveSession(message.sessionId, true);
+                    if (success) {
+                        vscode.window.showInformationMessage(`گفتگوی ${message.sessionId.slice(0, 8)} به بخش آرشیو منتقل شد.`);
+                        await this.loadDashboardData();
+                        this.refresh();
+                    } else {
+                        vscode.window.showErrorMessage('خطا در آرشیو گفتگو.');
+                    }
+                }
+                break;
+            case 'restoreSession':
+                if (message.sessionId) {
+                    const success = await this.hermesDb.archiveSession(message.sessionId, false);
+                    if (success) {
+                        vscode.window.showInformationMessage(`گفتگوی ${message.sessionId.slice(0, 8)} با موفقیت به چت‌های فعال بازگردانده شد.`);
+                        await this.loadDashboardData();
+                        this.refresh();
+                    } else {
+                        vscode.window.showErrorMessage('خطا در بازگردانی گفتگو.');
+                    }
+                }
+                break;
+            case 'deleteSession':
+                if (message.sessionId) {
+                    const success = await this.hermesDb.deleteSession(message.sessionId);
+                    if (success) {
+                        vscode.window.showInformationMessage(`گفتگوی ${message.sessionId.slice(0, 8)} برای همیشه حذف شد.`);
+                        if (this.currentSessionId === message.sessionId) {
+                            this.currentSessionId = null;
+                            this.messages = [];
+                        }
+                        await this.loadDashboardData();
+                        this.refresh();
+                    } else {
+                        vscode.window.showErrorMessage('خطا در حذف گفتگو.');
+                    }
+                }
+                break;
             case 'openSkillFile':
                 if (message.skillPath) {
                     await vscode.commands.executeCommand('hermes.openSkillFile', message.skillPath);
@@ -524,6 +564,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         <button id="btn-sessions-refresh" class="btn-sm">↻ Refresh</button>
                     </div>
                 </div>
+                <div class="filter-pills-row" id="sessions-filter-pills">
+                    <button class="filter-pill active" data-filter="active">💬 Active (<span id="sessions-count-active">0</span>)</button>
+                    <button class="filter-pill" data-filter="archived">📦 Archived (<span id="sessions-count-archived">0</span>)</button>
+                    <button class="filter-pill" data-filter="all">All (<span id="sessions-count-all">0</span>)</button>
+                </div>
                 <input type="text" id="sessions-search" class="search-input" placeholder="Search sessions by title or model...">
             </div>
             <div id="sessions-list" class="cards-list"></div>
@@ -649,6 +694,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 </div>
             </div>
         </main>
+
+        <!-- Confirmation Modal -->
+        <div id="hermes-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <span id="modal-icon" class="modal-icon">📦</span>
+                    <h4 id="modal-title" class="modal-title">تأیید عملیات</h4>
+                </div>
+                <div class="modal-body">
+                    <p id="modal-message" class="modal-message"></p>
+                    <div id="modal-callout" class="modal-callout"></div>
+                </div>
+                <div class="modal-footer">
+                    <button id="modal-btn-cancel" class="btn-sm btn-modal-cancel">انصراف / Cancel</button>
+                    <button id="modal-btn-confirm" class="btn-sm btn-modal-confirm">تأیید</button>
+                </div>
+            </div>
+        </div>
     </div>
     <script nonce="${nonce}">${js}</script>
 </body>

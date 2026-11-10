@@ -380,17 +380,87 @@ document.getElementById('btn-clear-chat')?.addEventListener('click', () => {
 });
 
 // ==========================================================================
-// Sessions Tab
+// Confirmation Modal System
 // ==========================================================================
+
+let pendingModalAction = null;
+
+function showConfirmationModal({ icon, title, message, calloutHtml, confirmText, confirmClass, onConfirm }) {
+    const modal = document.getElementById('hermes-modal');
+    if (!modal) return;
+    
+    const iconEl = document.getElementById('modal-icon');
+    const titleEl = document.getElementById('modal-title');
+    const msgEl = document.getElementById('modal-message');
+    const calloutEl = document.getElementById('modal-callout');
+    const confirmBtn = document.getElementById('modal-btn-confirm');
+
+    if (iconEl) iconEl.textContent = icon || '❓';
+    if (titleEl) titleEl.textContent = title || 'تأیید عملیات';
+    if (msgEl) msgEl.textContent = message || '';
+    
+    if (calloutEl) {
+        calloutEl.innerHTML = calloutHtml || '';
+        calloutEl.style.display = calloutHtml ? 'block' : 'none';
+    }
+    
+    if (confirmBtn) {
+        confirmBtn.textContent = confirmText || 'تأیید';
+        confirmBtn.className = `btn-sm btn-modal-confirm ${confirmClass || ''}`;
+    }
+    
+    pendingModalAction = onConfirm;
+    modal.style.display = 'flex';
+}
+
+function hideConfirmationModal() {
+    const modal = document.getElementById('hermes-modal');
+    if (modal) modal.style.display = 'none';
+    pendingModalAction = null;
+}
+
+document.getElementById('modal-btn-cancel')?.addEventListener('click', hideConfirmationModal);
+document.getElementById('modal-btn-confirm')?.addEventListener('click', () => {
+    if (typeof pendingModalAction === 'function') {
+        pendingModalAction();
+    }
+    hideConfirmationModal();
+});
+document.getElementById('hermes-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'hermes-modal') hideConfirmationModal();
+});
+
+// ==========================================================================
+// Sessions Tab (Active / Archived / Delete with Alerts)
+// ==========================================================================
+
+let sessionsFilter = 'active';
 
 function renderSessions() {
     const listContainer = document.getElementById('sessions-list');
     if (!listContainer) return;
 
+    // Update counts on filter pills
+    const activeCount = sessions.filter(s => !s.archived).length;
+    const archivedCount = sessions.filter(s => !!s.archived).length;
+    const allCount = sessions.length;
+
+    const countActiveEl = document.getElementById('sessions-count-active');
+    const countArchivedEl = document.getElementById('sessions-count-archived');
+    const countAllEl = document.getElementById('sessions-count-all');
+    if (countActiveEl) countActiveEl.textContent = activeCount;
+    if (countArchivedEl) countArchivedEl.textContent = archivedCount;
+    if (countAllEl) countAllEl.textContent = allCount;
+
     const searchInput = document.getElementById('sessions-search');
     const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
 
     const filtered = sessions.filter(s => {
+        // Tab filter
+        if (sessionsFilter === 'active' && s.archived) return false;
+        if (sessionsFilter === 'archived' && !s.archived) return false;
+
+        // Search query
         if (!query) return true;
         return (s.title && s.title.toLowerCase().includes(query)) ||
                (s.model && s.model.toLowerCase().includes(query)) ||
@@ -398,30 +468,46 @@ function renderSessions() {
     });
 
     if (filtered.length === 0) {
-        listContainer.innerHTML = `<div class="empty-state"><p>No sessions found.</p></div>`;
+        const emptyMsg = sessionsFilter === 'archived' 
+            ? 'هیچ گفتگوی آرشیو شده‌ای یافت نشد.'
+            : 'No sessions found.';
+        listContainer.innerHTML = `<div class="empty-state"><p>${escapeHtml(emptyMsg)}</p></div>`;
         return;
     }
 
     listContainer.innerHTML = filtered.map(s => {
         const timeStr = formatRelativeTime(s.lastActive || s.updatedAt || s.startedAt);
         const shortModel = (s.model || 'Agent').split('/').pop().replace(/:free$/, '');
+        const sid = escapeHtml(s.id || s.sessionId);
+        const title = escapeHtml(s.title || s.id);
+        const isArchived = !!s.archived;
+
         return `
-            <div class="session-card" data-id="${escapeHtml(s.id || s.sessionId)}">
+            <div class="session-card ${isArchived ? 'session-archived' : ''}" data-id="${sid}">
                 <div class="session-card-header">
-                    <span class="card-title">${escapeHtml(s.title || s.id)}</span>
+                    <span class="card-title">${title}</span>
                     <span class="card-time">${escapeHtml(timeStr)}</span>
                 </div>
                 <div class="card-badges">
                     <span class="chip-tag chip-model">${escapeHtml(shortModel)}</span>
                     <span class="chip-tag chip-count">${s.messageCount || s.historyLen || 0} messages</span>
+                    ${isArchived ? '<span class="chip-tag chip-archived-badge">📦 Archived</span>' : ''}
                 </div>
                 <div class="card-footer">
-                    <button class="btn-sm btn-resume-session" data-id="${escapeHtml(s.id || s.sessionId)}">▶ Resume Chat</button>
+                    ${!isArchived ? `
+                        <button class="btn-sm btn-resume-session" data-id="${sid}">▶ Resume</button>
+                        <button class="btn-sm btn-archive-session" data-id="${sid}" data-title="${title}" title="Move to Archived">📦 Archive</button>
+                    ` : `
+                        <button class="btn-sm btn-restore-session" data-id="${sid}" data-title="${title}" title="Restore to Active Sessions">📤 Restore</button>
+                        <button class="btn-sm btn-resume-session" data-id="${sid}">▶ View</button>
+                    `}
+                    <button class="btn-sm btn-delete-session" data-id="${sid}" data-title="${title}" title="Permanently delete session">🗑️ Delete</button>
                 </div>
             </div>
         `;
     }).join('');
 
+    // Resume click
     listContainer.querySelectorAll('.btn-resume-session').forEach(btn => {
         btn.addEventListener('click', () => {
             const sid = btn.getAttribute('data-id');
@@ -430,7 +516,74 @@ function renderSessions() {
             }
         });
     });
+
+    // Archive click with confirmation modal
+    listContainer.querySelectorAll('.btn-archive-session').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const sid = btn.getAttribute('data-id');
+            const title = btn.getAttribute('data-title') || sid;
+            showConfirmationModal({
+                icon: '📦',
+                title: 'آرشیو گفتگو / Archive Session',
+                message: `آیا از آرشیو کردن گفتگوی «${title}» اطمینان دارید؟`,
+                calloutHtml: `
+                    <div class="modal-info-callout">
+                        <b>💡 نحوه دسترسی و بازگردانی:</b><br>
+                        این گفتگو به تب <b>«📦 Archived»</b> در بالای همین صفحه منتقل شده و از لیست چت‌های فعال پنهان می‌شود. 
+                        هر زمان بخواهید می‌توانید با مراجعه به تب آرشیو و کلیک روی دکمه <b>«📤 Restore»</b>، گفتگو را مجدداً به لیست چت‌های فعال بازگردانید.
+                    </div>
+                `,
+                confirmText: 'بله، آرشیو شود',
+                confirmClass: 'btn-accent',
+                onConfirm: () => {
+                    vscode.postMessage({ type: 'archiveSession', sessionId: sid });
+                }
+            });
+        });
+    });
+
+    // Restore click
+    listContainer.querySelectorAll('.btn-restore-session').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const sid = btn.getAttribute('data-id');
+            vscode.postMessage({ type: 'restoreSession', sessionId: sid });
+        });
+    });
+
+    // Delete click with danger warning modal
+    listContainer.querySelectorAll('.btn-delete-session').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const sid = btn.getAttribute('data-id');
+            const title = btn.getAttribute('data-title') || sid;
+            showConfirmationModal({
+                icon: '⚠️',
+                title: 'حذف دائمی گفتگو / Delete Session',
+                message: `آیا از حذف دائمی گفتگوی «${title}» اطمینان دارید؟`,
+                calloutHtml: `
+                    <div class="modal-danger-callout">
+                        <b>⚠️ اخطار بسیار مهم (غیرقابل بازگشت):</b><br>
+                        در صورت تأیید، این گفتگو و تمامی پیام‌ها و کدهای رد و بدل شده در آن برای همیشه از دیتابیس پاک شده و تحت هیچ شرایطی قابل دسترس یا بازگردانی نخواهد بود!
+                    </div>
+                `,
+                confirmText: 'بله، برای همیشه حذف شود',
+                confirmClass: 'btn-danger-confirm',
+                onConfirm: () => {
+                    vscode.postMessage({ type: 'deleteSession', sessionId: sid });
+                }
+            });
+        });
+    });
 }
+
+// Sessions filter pills
+document.querySelectorAll('#sessions-filter-pills .filter-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+        document.querySelectorAll('#sessions-filter-pills .filter-pill').forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        sessionsFilter = pill.getAttribute('data-filter') || 'active';
+        renderSessions();
+    });
+});
 
 document.getElementById('sessions-search')?.addEventListener('input', renderSessions);
 document.getElementById('btn-sessions-refresh')?.addEventListener('click', () => {

@@ -15,6 +15,7 @@ export interface HermesSession {
     createdAt: number;
     updatedAt: number;
     source?: string;
+    archived?: boolean;
 }
 
 export interface SkillInfo {
@@ -80,7 +81,8 @@ export class HermesDatabase {
                         messageCount: r.messageCount,
                         source: r.source,
                         createdAt: r.startedAt ? r.startedAt * 1000 : Date.now(),
-                        updatedAt: r.lastActive ? r.lastActive * 1000 : Date.now()
+                        updatedAt: r.lastActive ? r.lastActive * 1000 : Date.now(),
+                        archived: !!r.archived
                     }));
                     resolve(sessions);
                 } catch (parseErr) {
@@ -141,6 +143,47 @@ export class HermesDatabase {
 
     async loadSessionHistory(sessionId: string): Promise<any[]> {
         return this.getSessionMessages(sessionId);
+    }
+
+    async archiveSession(sessionId: string, archive: boolean = true): Promise<boolean> {
+        return new Promise((resolve) => {
+            const script = this.getScriptPath();
+            const pythonExe = getPythonExecutablePath();
+            const actionArg = archive ? 'archive' : 'restore';
+            execFile(pythonExe, [script, 'archive', this.dbPath, sessionId, actionArg], { timeout: 10000 }, (err, stdout) => {
+                if (err) {
+                    this.logger.error(`Failed to ${actionArg} session ${sessionId}:`, err);
+                    resolve(false);
+                    return;
+                }
+                try {
+                    const res = JSON.parse(stdout.trim() || '{}');
+                    resolve(res.success === true);
+                } catch {
+                    resolve(false);
+                }
+            });
+        });
+    }
+
+    async deleteSession(sessionId: string): Promise<boolean> {
+        return new Promise((resolve) => {
+            const script = this.getScriptPath();
+            const pythonExe = getPythonExecutablePath();
+            execFile(pythonExe, [script, 'delete', this.dbPath, sessionId], { timeout: 10000 }, (err, stdout) => {
+                if (err) {
+                    this.logger.error(`Failed to delete session ${sessionId}:`, err);
+                    resolve(false);
+                    return;
+                }
+                try {
+                    const res = JSON.parse(stdout.trim() || '{}');
+                    resolve(res.success === true);
+                } catch {
+                    resolve(false);
+                }
+            });
+        });
     }
 
     async getModelConfig(): Promise<any> {
