@@ -134,6 +134,7 @@ function renderChatHeader() {
                 navigator.clipboard.writeText(sessionId).then(() => {
                     const orig = sessionBadge.textContent;
                     sessionBadge.textContent = '✓ Copied';
+                    showToast('✓ Session ID copied', 'info');
                     setTimeout(() => { sessionBadge.textContent = orig; }, 1500);
                 });
             };
@@ -161,27 +162,47 @@ function renderMessages() {
 
     if (!messages || messages.length === 0) {
         const curModel = modelConfig?.current?.model || 'Hermes AI';
+        const shortModel = curModel.split('/').pop().replace(/:free$/, '');
         container.innerHTML = `
             <div class="empty-state">
-                <div class="empty-icon">⚚</div>
-                <h2>Hermes AI Assistant</h2>
-                <p>Autonomous AI agent running on <strong>${escapeHtml(curModel)}</strong>.</p>
+                <div class="empty-icon-wrap">
+                    <div class="empty-icon-halo"></div>
+                    <div class="empty-icon">⚚</div>
+                </div>
+                <h2 class="empty-title">Hermes AI Assistant</h2>
+                <p class="empty-subtitle">Autonomous AI agent running on <span class="empty-model-pill" title="${escapeHtml(curModel)}">${escapeHtml(shortModel)}</span></p>
                 <div class="quick-prompts">
                     <button class="quick-prompt" data-prompt="Explain this project architecture and codebase structure">
-                        <span>🔍</span>
-                        <span>Explain Project Architecture</span>
+                        <span class="quick-prompt-icon">🔍</span>
+                        <div class="quick-prompt-text">
+                            <span class="quick-prompt-title">Explain Architecture</span>
+                            <span class="quick-prompt-desc">Codebase structure & dependencies</span>
+                        </div>
+                        <span class="quick-prompt-arrow">›</span>
                     </button>
                     <button class="quick-prompt" data-prompt="Review recent git commits and current git status">
-                        <span>📜</span>
-                        <span>Review Git Status & Commits</span>
+                        <span class="quick-prompt-icon">📜</span>
+                        <div class="quick-prompt-text">
+                            <span class="quick-prompt-title">Review Git Status</span>
+                            <span class="quick-prompt-desc">Recent commits & uncommitted changes</span>
+                        </div>
+                        <span class="quick-prompt-arrow">›</span>
                     </button>
                     <button class="quick-prompt" data-prompt="Scan for potential bugs, errors, or performance bottlenecks in this workspace">
-                        <span>⚡</span>
-                        <span>Find Bugs & Optimize Code</span>
+                        <span class="quick-prompt-icon">⚡</span>
+                        <div class="quick-prompt-text">
+                            <span class="quick-prompt-title">Find Bugs & Optimize</span>
+                            <span class="quick-prompt-desc">Detect issues, security & bottlenecks</span>
+                        </div>
+                        <span class="quick-prompt-arrow">›</span>
                     </button>
                     <button class="quick-prompt" data-prompt="List available skills and how they can be used for this project">
-                        <span>🧠</span>
-                        <span>Explore Available Skills</span>
+                        <span class="quick-prompt-icon">🧠</span>
+                        <div class="quick-prompt-text">
+                            <span class="quick-prompt-title">Explore Skills</span>
+                            <span class="quick-prompt-desc">Discovered tools & learned capabilities</span>
+                        </div>
+                        <span class="quick-prompt-arrow">›</span>
                     </button>
                 </div>
             </div>
@@ -234,6 +255,7 @@ function renderMessages() {
                 const text = code ? code.innerText : pre.innerText;
                 navigator.clipboard.writeText(text).then(() => {
                     copyBtn.textContent = '✓ Copied';
+                    showToast('✓ Code copied to clipboard', 'success');
                     setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 2000);
                 });
             });
@@ -378,6 +400,23 @@ document.getElementById('btn-stop-turn')?.addEventListener('click', () => {
 document.getElementById('btn-clear-chat')?.addEventListener('click', () => {
     vscode.postMessage({ type: 'clearHistory' });
 });
+
+// ==========================================================================
+// Toast Notification System
+// ==========================================================================
+
+function showToast(message, type = 'info') {
+    const toast = document.getElementById('hermes-toast');
+    if (!toast) return;
+    toast.textContent = message;
+    toast.className = `toast-notification toast-${type} show`;
+    toast.style.display = 'flex';
+    clearTimeout(toast._timeout);
+    toast._timeout = setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => { toast.style.display = 'none'; }, 250);
+    }, 2800);
+}
 
 // ==========================================================================
 // Confirmation Modal System
@@ -537,6 +576,7 @@ function renderSessions() {
                 confirmClass: 'btn-accent',
                 onConfirm: () => {
                     vscode.postMessage({ type: 'archiveSession', sessionId: sid });
+                    showToast('📦 گفتگو با موفقیت آرشیو شد', 'info');
                 }
             });
         });
@@ -547,6 +587,7 @@ function renderSessions() {
         btn.addEventListener('click', () => {
             const sid = btn.getAttribute('data-id');
             vscode.postMessage({ type: 'restoreSession', sessionId: sid });
+            showToast('📤 گفتگو به لیست چت‌های فعال بازگردانده شد', 'success');
         });
     });
 
@@ -569,6 +610,7 @@ function renderSessions() {
                 confirmClass: 'btn-danger-confirm',
                 onConfirm: () => {
                     vscode.postMessage({ type: 'deleteSession', sessionId: sid });
+                    showToast('🗑 گفتگو برای همیشه حذف شد', 'warning');
                 }
             });
         });
@@ -864,6 +906,8 @@ document.getElementById('btn-save-model-config')?.addEventListener('click', () =
         baseUrl: baseUrl || undefined
     });
 
+    showToast(`🚀 در حال اعمال ${model}...`, 'info');
+
     if (feedback) {
         feedback.textContent = `Applying ${model} on ${provider}...`;
         feedback.className = 'feedback-msg success';
@@ -895,10 +939,12 @@ function renderSettings() {
 
 document.getElementById('setting-auto-approve')?.addEventListener('change', () => {
     vscode.postMessage({ type: 'toggleAutoApprove' });
+    showToast('⚙️ تنظیمات مجوز به‌روزرسانی شد', 'info');
 });
 
 document.getElementById('btn-reconnect-hermes')?.addEventListener('click', () => {
     vscode.postMessage({ type: 'reconnect' });
+    showToast('↻ در حال تلاش برای اتصال به هرمس...', 'info');
 });
 
 document.getElementById('btn-run-setup-terminal')?.addEventListener('click', () => {

@@ -712,6 +712,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 </div>
             </div>
         </div>
+
+        <!-- Floating Toast Notification -->
+        <div id="hermes-toast" class="toast-notification" style="display: none;"></div>
     </div>
     <script nonce="${nonce}">${js}</script>
 </body>
