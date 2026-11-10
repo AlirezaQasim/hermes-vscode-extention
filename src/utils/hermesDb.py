@@ -234,109 +234,31 @@ def extract_description(skill_file):
         pass
     return None
 
-KNOWN_PROVIDERS = [
-    {
-        "id": "openrouter",
-        "name": "OpenRouter (300+ models, free options)",
-        "envVar": "OPENROUTER_API_KEY",
-        "baseUrl": "https://openrouter.ai/api/v1",
-        "docUrl": "https://openrouter.ai/keys",
-        "popularModels": [
-            {"id": "nvidia/nemotron-3-ultra-550b-a55b:free", "name": "NVIDIA Nemotron 3 Ultra 550B (Free)", "tag": "Free"},
-            {"id": "thinkingmachines/inkling:free", "name": "Inkling (Free)", "tag": "Free"},
-            {"id": "meta-llama/llama-3.3-70b-instruct:free", "name": "Llama 3.3 70B Instruct (Free)", "tag": "Free"},
-            {"id": "deepseek/deepseek-r1:free", "name": "DeepSeek R1 (Free)", "tag": "Free"},
-            {"id": "google/gemini-2.0-flash-exp:free", "name": "Gemini 2.0 Flash (Free)", "tag": "Free"},
-            {"id": "anthropic/claude-3.5-sonnet", "name": "Claude 3.5 Sonnet", "tag": "Top Rated"},
-            {"id": "anthropic/claude-3.5-haiku", "name": "Claude 3.5 Haiku", "tag": "Fast"},
-            {"id": "openai/gpt-4o", "name": "OpenAI GPT-4o", "tag": "Flagship"},
-            {"id": "openai/gpt-4o-mini", "name": "OpenAI GPT-4o Mini", "tag": "Fast"},
-            {"id": "deepseek/deepseek-chat", "name": "DeepSeek V3", "tag": "Smart"}
-        ]
-    },
-    {
-        "id": "gemini",
-        "name": "Google AI Studio / Gemini",
-        "envVar": "GOOGLE_API_KEY",
-        "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
-        "docUrl": "https://aistudio.google.com/app/apikey",
-        "popularModels": [
-            {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash", "tag": "Recommended"},
-            {"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro", "tag": "Most Capable"},
-            {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "tag": "Fast"},
-            {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro", "tag": "Large Context"}
-        ]
-    },
-    {
-        "id": "anthropic",
-        "name": "Anthropic Claude",
-        "envVar": "ANTHROPIC_API_KEY",
-        "baseUrl": "https://api.anthropic.com/v1",
-        "docUrl": "https://console.anthropic.com/settings/keys",
-        "popularModels": [
-            {"id": "claude-3-5-sonnet-20241022", "name": "Claude 3.5 Sonnet", "tag": "Coding"},
-            {"id": "claude-3-5-haiku-20241022", "name": "Claude 3.5 Haiku", "tag": "Fast"},
-            {"id": "claude-3-opus-20240229", "name": "Claude 3 Opus", "tag": "Deep Thinking"}
-        ]
-    },
-    {
-        "id": "openai",
-        "name": "OpenAI",
-        "envVar": "OPENAI_API_KEY",
-        "baseUrl": "https://api.openai.com/v1",
-        "docUrl": "https://platform.openai.com/api-keys",
-        "popularModels": [
-            {"id": "gpt-4o", "name": "GPT-4o", "tag": "Flagship"},
-            {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "tag": "Fast"},
-            {"id": "o1-preview", "name": "o1 Reasoning", "tag": "Reasoning"},
-            {"id": "o1-mini", "name": "o1 Mini", "tag": "Math & Code"}
-        ]
-    },
-    {
-        "id": "groq",
-        "name": "Groq (Ultra-Fast Inference)",
-        "envVar": "GROQ_API_KEY",
-        "baseUrl": "https://api.groq.com/openai/v1",
-        "docUrl": "https://console.groq.com/keys",
-        "popularModels": [
-            {"id": "llama-3.3-70b-versatile", "name": "Llama 3.3 70B", "tag": "Ultra Fast"},
-            {"id": "llama-3.1-8b-instant", "name": "Llama 3.1 8B", "tag": "Instant"},
-            {"id": "mixtral-8x7b-32768", "name": "Mixtral 8x7B", "tag": "High Context"}
-        ]
-    },
-    {
-        "id": "deepseek",
-        "name": "DeepSeek API",
-        "envVar": "DEEPSEEK_API_KEY",
-        "baseUrl": "https://api.deepseek.com",
-        "docUrl": "https://platform.deepseek.com/api_keys",
-        "popularModels": [
-            {"id": "deepseek-chat", "name": "DeepSeek V3", "tag": "Flagship"},
-            {"id": "deepseek-reasoner", "name": "DeepSeek R1", "tag": "Reasoning"}
-        ]
-    },
-    {
-        "id": "ollama",
-        "name": "Ollama (Local Models)",
-        "envVar": "",
-        "baseUrl": "http://localhost:11434/v1",
-        "docUrl": "https://ollama.com",
-        "popularModels": [
-            {"id": "llama3.3", "name": "Llama 3.3 (Local)", "tag": "Local"},
-            {"id": "deepseek-r1:14b", "name": "DeepSeek R1 14B (Local)", "tag": "Local"},
-            {"id": "qwen2.5-coder:7b", "name": "Qwen 2.5 Coder (Local)", "tag": "Local"},
-            {"id": "mistral:7b", "name": "Mistral 7B (Local)", "tag": "Local"}
-        ]
-    },
-    {
-        "id": "custom",
-        "name": "Custom OpenAI-Compatible API",
-        "envVar": "CUSTOM_API_KEY",
-        "baseUrl": "",
-        "docUrl": "",
-        "popularModels": []
-    }
-]
+# =============================================================================
+# Models and Inference Operators Management
+# =============================================================================
+
+def bootstrap_hermes_cli(h_home):
+    """Attempt to import hermes CLI and bootstrap its environment."""
+    candidates = [
+        h_home / "hermes-agent",
+        h_home.parent / "hermes-agent",
+        Path.home() / ".hermes" / "hermes-agent"
+    ]
+    env_agent = os.environ.get("HERMES_AGENT_PATH")
+    if env_agent:
+        candidates.insert(0, Path(env_agent))
+        
+    for p in candidates:
+        if p.exists() and ((p / "hermes_bootstrap.py").exists() or (p / "hermes_cli").exists()):
+            if str(p) not in sys.path:
+                sys.path.insert(0, str(p))
+            try:
+                import hermes_bootstrap
+                return True
+            except Exception:
+                pass
+    return False
 
 def mask_key(k):
     if not k:
@@ -345,11 +267,77 @@ def mask_key(k):
         return "••••••••"
     return k[:3] + "••••••••" + k[-4:]
 
+def clean_model_name(model_id):
+    """Converts a raw model id like 'nvidia/nemotron-3-ultra-550b-a55b:free' into a clean readable title."""
+    name = model_id.split("/")[-1]
+    name = re.sub(r':free$', '', name, flags=re.IGNORECASE)
+    parts = re.split(r'[-_]', name)
+    capitalized = " ".join([p.upper() if p.lower() in {"ai", "gpt", "api", "moa", "nim", "ui", "r1", "v1", "v2", "v3", "v4"} or any(c.isdigit() for c in p) else p.capitalize() for p in parts])
+    return capitalized or model_id
+
+# Canonical Fallback Providers (matches hermes model CLI catalog of 53+ providers)
+FALLBACK_PROVIDERS = [
+    {"id": "nous", "name": "Nous Portal (Everything your agent needs, 300+ models with bundled tool use)", "envVar": "NOUS_API_KEY", "baseUrl": ""},
+    {"id": "fireworks", "name": "Fireworks AI (OpenAI-compatible direct model API)", "envVar": "FIREWORKS_API_KEY", "baseUrl": "https://api.fireworks.ai/inference/v1"},
+    {"id": "openrouter", "name": "OpenRouter (Pay-per-use API aggregator)", "envVar": "OPENROUTER_API_KEY", "baseUrl": "https://openrouter.ai/api/v1"},
+    {"id": "moa", "name": "Mixture of Agents (named presets; aggregator acts after reference models)", "envVar": "", "baseUrl": ""},
+    {"id": "novita", "name": "NovitaAI (Cloud: Model API, Agent Sandbox, GPU Cloud)", "envVar": "NOVITA_API_KEY", "baseUrl": "https://api.novita.ai/v3/openai"},
+    {"id": "lmstudio", "name": "LM Studio (Local desktop app with built-in model server)", "envVar": "LM_API_KEY", "baseUrl": "http://localhost:1234/v1"},
+    {"id": "anthropic", "name": "Anthropic (Claude models via API key or Claude Code)", "envVar": "ANTHROPIC_API_KEY", "baseUrl": "https://api.anthropic.com/v1"},
+    {"id": "openai-codex", "name": "ChatGPT or Codex Subscription (Sign in with your ChatGPT account, uses Codex models)", "envVar": "", "baseUrl": ""},
+    {"id": "openai-api", "name": "OpenAI API (api.openai.com, API key)", "envVar": "OPENAI_API_KEY", "baseUrl": "https://api.openai.com/v1"},
+    {"id": "alibaba", "name": "Qwen Cloud / DashScope (Qwen + multi-provider)", "envVar": "DASHSCOPE_API_KEY", "baseUrl": ""},
+    {"id": "xai-oauth", "name": "xAI Grok OAuth (SuperGrok / Premium+ subscription)", "envVar": "", "baseUrl": ""},
+    {"id": "xiaomi", "name": "Xiaomi MiMo (MiMo-V2.5 and V2 models: pro, omni, flash)", "envVar": "XIAOMI_API_KEY", "baseUrl": ""},
+    {"id": "tencent-tokenhub", "name": "Tencent TokenHub (Hy4 preview via tokenhub.tencentmaas.com)", "envVar": "TOKENHUB_API_KEY", "baseUrl": ""},
+    {"id": "tencent-tokenplan", "name": "Tencent TokenPlan (Hy4 preview via api.lkeap.cloud.tencent.com, Anthropic Messages)", "envVar": "TOKENPLAN_API_KEY", "baseUrl": ""},
+    {"id": "nvidia", "name": "NVIDIA NIM (Nemotron models via build.nvidia.com or local NIM)", "envVar": "NVIDIA_API_KEY", "baseUrl": "https://integrate.api.nvidia.com/v1"},
+    {"id": "copilot", "name": "GitHub Copilot (Uses GITHUB_TOKEN or gh auth token)", "envVar": "GITHUB_TOKEN", "baseUrl": ""},
+    {"id": "copilot-acp", "name": "GitHub Copilot ACP (Spawns copilot --acp --stdio)", "envVar": "", "baseUrl": ""},
+    {"id": "huggingface", "name": "Hugging Face Inference Providers", "envVar": "HF_TOKEN", "baseUrl": ""},
+    {"id": "gemini", "name": "Google AI Studio (Native Gemini API)", "envVar": "GOOGLE_API_KEY", "baseUrl": "https://generativelanguage.googleapis.com/v1beta"},
+    {"id": "vertex", "name": "Google Vertex AI (Gemini via GCP; OAuth2 service account or ADC, GCP billing/quotas)", "envVar": "", "baseUrl": ""},
+    {"id": "deepseek", "name": "DeepSeek (V3, R1, coder, direct API)", "envVar": "DEEPSEEK_API_KEY", "baseUrl": "https://api.deepseek.com"},
+    {"id": "xai", "name": "xAI Grok (Direct API)", "envVar": "XAI_API_KEY", "baseUrl": "https://api.x.ai/v1"},
+    {"id": "zai", "name": "Z.AI / GLM (Zhipu direct API)", "envVar": "GLM_API_KEY", "baseUrl": ""},
+    {"id": "kimi-coding", "name": "Kimi Coding Plan (api.kimi.com & Moonshot API)", "envVar": "KIMI_API_KEY", "baseUrl": ""},
+    {"id": "kimi-coding-cn", "name": "Kimi / Moonshot China (Domestic direct API)", "envVar": "KIMI_CN_API_KEY", "baseUrl": ""},
+    {"id": "stepfun", "name": "StepFun Step Plan (Agent / coding models via Step Plan API)", "envVar": "STEPFUN_API_KEY", "baseUrl": ""},
+    {"id": "minimax", "name": "MiniMax (Global direct API)", "envVar": "MINIMAX_API_KEY", "baseUrl": ""},
+    {"id": "minimax-oauth", "name": "MiniMax via OAuth browser login (Coding Plan, minimax.io)", "envVar": "", "baseUrl": ""},
+    {"id": "minimax-cn", "name": "MiniMax China (Domestic direct API)", "envVar": "MINIMAX_CN_API_KEY", "baseUrl": ""},
+    {"id": "ollama-cloud", "name": "Ollama Cloud (Cloud-hosted open models, ollama.com)", "envVar": "OLLAMA_API_KEY", "baseUrl": ""},
+    {"id": "arcee", "name": "Arcee AI (Trinity models, direct API)", "envVar": "ARCEEAI_API_KEY", "baseUrl": ""},
+    {"id": "gmi", "name": "GMI Cloud (Multi-model direct API)", "envVar": "GMI_API_KEY", "baseUrl": ""},
+    {"id": "kilocode", "name": "Kilo Code (Kilo Gateway API)", "envVar": "KILOCODE_API_KEY", "baseUrl": ""},
+    {"id": "opencode-zen", "name": "OpenCode Zen (Curated models, pay-as-you-go)", "envVar": "OPENCODE_ZEN_API_KEY", "baseUrl": ""},
+    {"id": "opencode-go", "name": "OpenCode Go (Open models subscription)", "envVar": "OPENCODE_GO_API_KEY", "baseUrl": ""},
+    {"id": "bedrock", "name": "AWS Bedrock (Claude, Nova, Llama, DeepSeek; IAM or API key)", "envVar": "AWS_ACCESS_KEY_ID", "baseUrl": ""},
+    {"id": "azure-foundry", "name": "Azure Foundry (OpenAI-style or Anthropic-style endpoint, your Azure AI deployment)", "envVar": "AZURE_FOUNDRY_API_KEY", "baseUrl": ""},
+    {"id": "ai-gateway", "name": "Vercel AI Gateway (Multi-model aggregator)", "envVar": "AI_GATEWAY_API_KEY", "baseUrl": ""},
+    {"id": "qwen-oauth", "name": "Qwen OAuth (Reuses local Qwen CLI login)", "envVar": "", "baseUrl": ""},
+    {"id": "actual", "name": "Actual Computer - hosted inference via api.actual.inc, or local offline inference via model.base_url in config.yaml", "envVar": "ACTUAL_API_KEY", "baseUrl": ""},
+    {"id": "alibaba-cn", "name": "Alibaba Cloud DashScope, mainland-China endpoint", "envVar": "DASHSCOPE_API_KEY", "baseUrl": ""},
+    {"id": "alibaba-token-plan", "name": "Alibaba Cloud Model Studio Token Plan (flat-token tier)", "envVar": "ALIBABA_TOKEN_PLAN_API_KEY", "baseUrl": ""},
+    {"id": "alibaba-token-plan-cn", "name": "Alibaba Cloud Model Studio Token Plan, mainland-China endpoint", "envVar": "ALIBABA_TOKEN_PLAN_CN_API_KEY", "baseUrl": ""},
+    {"id": "alibaba-coding-plan", "name": "Alibaba Cloud Coding Plan (Dedicated coding tier)", "envVar": "ALIBABA_CODING_PLAN_API_KEY", "baseUrl": ""},
+    {"id": "alibaba-coding-plan-cn", "name": "Alibaba Cloud Coding Plan, mainland-China endpoint", "envVar": "ALIBABA_CODING_PLAN_CN_API_KEY", "baseUrl": ""},
+    {"id": "commandcode", "name": "CommandCode — 20+ models via OpenAI-compatible API", "envVar": "COMMANDCODE_API_KEY", "baseUrl": ""},
+    {"id": "commandcode-anthropic", "name": "CommandCode — Claude models via Anthropic Messages API", "envVar": "COMMANDCODE_API_KEY", "baseUrl": ""},
+    {"id": "custom", "name": "custom (direct API)", "envVar": "CUSTOM_API_KEY", "baseUrl": ""},
+    {"id": "deepinfra", "name": "DeepInfra — 100+ open models, pay-per-use", "envVar": "DEEPINFRA_API_KEY", "baseUrl": "https://api.deepinfra.com/v1/openai"},
+    {"id": "meta-ai", "name": "Meta Muse Spark family (Meta Superintelligence Labs)", "envVar": "META_API_KEY", "baseUrl": ""},
+    {"id": "nebius-token-factory", "name": "Nebius Token Factory — OpenAI-compatible inference", "envVar": "NEBIUS_API_KEY", "baseUrl": ""},
+    {"id": "router", "name": "Ramp Router (router.com) — routes each request to the cheapest model that clears your quality bar", "envVar": "RAMP_ROUTER_API_KEY", "baseUrl": ""},
+    {"id": "upstage", "name": "Upstage (Solar API)", "envVar": "UPSTAGE_API_KEY", "baseUrl": ""},
+    {"id": "ollama", "name": "Ollama (Local Models at localhost:11434)", "envVar": "", "baseUrl": "http://localhost:11434/v1"},
+    {"id": "groq", "name": "Groq (Ultra-Fast Inference)", "envVar": "GROQ_API_KEY", "baseUrl": "https://api.groq.com/openai/v1"}
+]
+
 def get_model_config(hermes_home_str=None):
     h_home = get_hermes_home(hermes_home_str)
     cfg_file = h_home / "config.yaml"
     env_file = h_home / ".env"
-    cache_file = h_home / "models_dev_cache.json"
 
     cur_provider = "openrouter"
     cur_model = ""
@@ -359,13 +347,13 @@ def get_model_config(hermes_home_str=None):
         try:
             with open(cfg_file, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
-            m_def = re.search(r'(?m)^\s*default:\s*[\'"]?([^\'"\r\n]+)[\'"]?', content)
+            m_def = re.search(r"(?m)^\s*default:\s*['\"]?([^\r\n'\"]+)['\"]?", content)
             if m_def:
                 cur_model = m_def.group(1).strip()
-            m_prov = re.search(r'(?m)^\s*provider:\s*[\'"]?([^\'"\r\n]+)[\'"]?', content)
+            m_prov = re.search(r"(?m)^\s*provider:\s*['\"]?([^\r\n'\"]+)['\"]?", content)
             if m_prov:
                 cur_provider = m_prov.group(1).strip()
-            m_base = re.search(r'(?m)^\s*base_url:\s*[\'"]?([^\'"\r\n]+)[\'"]?', content)
+            m_base = re.search(r"(?m)^\s*base_url:\s*['\"]?([^\r\n'\"]+)['\"]?", content)
             if m_base:
                 cur_base_url = m_base.group(1).strip()
         except Exception:
@@ -386,51 +374,189 @@ def get_model_config(hermes_home_str=None):
         except Exception:
             pass
 
-    # Read extra cached models if available
-    cached_catalog = {}
-    if cache_file.exists():
+    has_hermes_engine = bootstrap_hermes_cli(h_home)
+    canonical_list = []
+    provider_registry = {}
+    models_mod = None
+    pricing_mod = None
+    static_provider_models = {}
+
+    if has_hermes_engine:
         try:
-            with open(cache_file, "r", encoding="utf-8", errors="ignore") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    for pid, pdata in data.items():
-                        if isinstance(pdata, dict) and "models" in pdata:
-                            ms = pdata.get("models")
-                            if isinstance(ms, dict):
-                                cached_catalog[pid] = [{"id": mid, "name": minfo.get("name") or mid} for mid, minfo in ms.items()]
-                            elif isinstance(ms, list):
-                                cached_catalog[pid] = [{"id": m, "name": m} for m in ms]
-        except Exception:
-            pass
+            from hermes_cli.models_catalog_static import CANONICAL_PROVIDERS, _PROVIDER_MODELS
+            from hermes_cli.auth import PROVIDER_REGISTRY
+            from hermes_cli import models, models_pricing
+            canonical_list = CANONICAL_PROVIDERS
+            static_provider_models = _PROVIDER_MODELS
+            provider_registry = PROVIDER_REGISTRY
+            models_mod = models
+            pricing_mod = models_pricing
+        except Exception as e:
+            sys.stderr.write(f"Hermes engine load error: {e}\n")
 
     providers_out = []
-    for kp in KNOWN_PROVIDERS:
-        pid = kp["id"]
-        e_var = kp["envVar"]
-        val = env_keys.get(e_var, "")
-        if not val and pid == "gemini":
-            val = env_keys.get("GEMINI_API_KEY", "")
-        
-        has_key = bool(val) or pid == "ollama"
-        key_masked = mask_key(val) if val else ("Local" if pid == "ollama" else "")
+    seen_pids = set()
 
-        models = list(kp["popularModels"])
-        # Append cached models if available and not duplicated
-        if pid in cached_catalog:
-            existing_ids = {m["id"] for m in models}
-            for cm in cached_catalog[pid]:
-                if cm["id"] not in existing_ids:
-                    models.append({"id": cm["id"], "name": cm["name"], "tag": "Catalog"})
+    if canonical_list:
+        for p in canonical_list:
+            pid = p.slug
+            seen_pids.add(pid)
+            pname = p.tui_desc or p.label
+            reg = provider_registry.get(pid) if provider_registry else None
+            
+            env_vars = list(reg.api_key_env_vars) if reg and reg.api_key_env_vars else []
+            if not env_vars:
+                if pid == "openrouter":
+                    env_vars = ["OPENROUTER_API_KEY"]
+                elif pid == "gemini":
+                    env_vars = ["GOOGLE_API_KEY", "GEMINI_API_KEY"]
+                elif pid in {"openai-api", "openai"}:
+                    env_vars = ["OPENAI_API_KEY"]
+                elif pid == "anthropic":
+                    env_vars = ["ANTHROPIC_API_KEY"]
+                elif pid == "deepseek":
+                    env_vars = ["DEEPSEEK_API_KEY"]
+                elif pid == "groq":
+                    env_vars = ["GROQ_API_KEY"]
+                elif pid == "custom":
+                    env_vars = ["CUSTOM_API_KEY"]
+
+            val = ""
+            for ev in env_vars:
+                if ev in env_keys:
+                    val = env_keys[ev]
+                    break
+            if not val and pid == "gemini":
+                val = env_keys.get("GOOGLE_API_KEY") or env_keys.get("GEMINI_API_KEY", "")
+
+            has_key = bool(val) or pid == "ollama" or (pid in {"openai-codex", "xai-oauth", "qwen-oauth", "minimax-oauth"})
+            key_masked = mask_key(val) if val else ("OAuth / CLI" if pid in {"openai-codex", "xai-oauth", "qwen-oauth", "minimax-oauth"} else ("Local" if pid == "ollama" else ""))
+            base_url = (reg.inference_base_url if reg and hasattr(reg, "inference_base_url") else "") or ""
+
+            m_list = []
+            if pid == "openrouter" and models_mod:
+                try:
+                    or_ids = models_mod.provider_model_ids("openrouter")
+                    or_pricing = pricing_mod.get_pricing_for_provider("openrouter") if pricing_mod else {}
+                    for mid in or_ids:
+                        pr = or_pricing.get(mid)
+                        is_free = False
+                        if pr:
+                            try:
+                                is_free = float(pr.get("prompt", 1)) == 0 and float(pr.get("completion", 1)) == 0
+                            except Exception:
+                                pass
+                        if not is_free and (":free" in mid.lower() or (hasattr(models_mod, "_openrouter_model_is_free") and models_mod._openrouter_model_is_free(mid))):
+                            is_free = True
+
+                        if is_free:
+                            tag = "Free"
+                        elif any(k in mid.lower() for k in ["sonnet", "gpt-4o", "deepseek-chat", "opus"]):
+                            tag = "Top Rated"
+                        elif any(k in mid.lower() for k in ["haiku", "mini", "flash"]):
+                            tag = "Fast"
+                        elif any(k in mid.lower() for k in ["r1", "o1", "o3", "reason"]):
+                            tag = "Reasoning"
+                        else:
+                            tag = "Catalog"
+                        
+                        m_list.append({
+                            "id": mid,
+                            "name": clean_model_name(mid),
+                            "tag": tag
+                        })
+                    m_list.sort(key=lambda x: 0 if x["tag"] == "Free" else (1 if x["tag"] == "Top Rated" else (2 if x["tag"] == "Fast" else 3)))
+                except Exception as e:
+                    sys.stderr.write(f"Error fetching openrouter models: {e}\n")
+
+            elif pid == "gemini":
+                try:
+                    g_ids = list(models_mod.provider_model_ids("gemini")) if models_mod else []
+                    for extra in ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemma-4-31b-it", "gemma-4-26b-a4b-it"]:
+                        if extra not in g_ids:
+                            g_ids.append(extra)
+                    for mid in g_ids:
+                        if "3.1-pro" in mid:
+                            tag = "Recommended"
+                        elif "3-flash" in mid:
+                            tag = "Fast Preview"
+                        elif "2.5-pro" in mid:
+                            tag = "Most Capable"
+                        elif "flash-lite" in mid:
+                            tag = "Fast Lite"
+                        elif "flash" in mid:
+                            tag = "Fast"
+                        elif "gemma" in mid:
+                            tag = "Open Weights"
+                        else:
+                            tag = "Official"
+                        m_list.append({
+                            "id": mid,
+                            "name": mid,
+                            "tag": tag
+                        })
+                except Exception as e:
+                    sys.stderr.write(f"Error fetching gemini models: {e}\n")
+
+            else:
+                static_ms = static_provider_models.get(pid, [])
+                if not static_ms and pid in {"anthropic", "openai-api", "deepseek", "nvidia", "alibaba"} and models_mod:
+                    try:
+                        static_ms = models_mod.provider_model_ids(pid)
+                    except Exception:
+                        pass
+                for mid in static_ms:
+                    m_list.append({
+                        "id": mid,
+                        "name": clean_model_name(mid),
+                        "tag": "Catalog"
+                    })
+
+            providers_out.append({
+                "id": pid,
+                "name": pname,
+                "envVar": env_vars[0] if env_vars else "",
+                "hasKey": has_key,
+                "keyMasked": key_masked,
+                "baseUrl": base_url,
+                "docUrl": "",
+                "models": m_list[:70]
+            })
+
+    for fb in FALLBACK_PROVIDERS:
+        f_id = fb["id"]
+        if f_id in seen_pids:
+            continue
+        seen_pids.add(f_id)
+        e_var = fb["envVar"]
+        val = env_keys.get(e_var, "") if e_var else ""
+        has_key = bool(val) or f_id == "ollama"
+        key_masked = mask_key(val) if val else ("Local" if f_id == "ollama" else "")
+
+        models = []
+        if f_id == "ollama":
+            models = [
+                {"id": "llama3.3", "name": "Llama 3.3", "tag": "Local"},
+                {"id": "deepseek-r1:14b", "name": "DeepSeek R1 14B", "tag": "Local"},
+                {"id": "qwen2.5-coder:7b", "name": "Qwen 2.5 Coder", "tag": "Local"},
+                {"id": "mistral:7b", "name": "Mistral 7B", "tag": "Local"}
+            ]
+        elif f_id == "groq":
+            models = [
+                {"id": "llama-3.3-70b-versatile", "name": "Llama 3.3 70B", "tag": "Ultra Fast"},
+                {"id": "llama-3.1-8b-instant", "name": "Llama 3.1 8B", "tag": "Instant"},
+                {"id": "mixtral-8x7b-32768", "name": "Mixtral 8x7B", "tag": "High Context"}
+            ]
 
         providers_out.append({
-            "id": pid,
-            "name": kp["name"],
+            "id": f_id,
+            "name": fb["name"],
             "envVar": e_var,
             "hasKey": has_key,
             "keyMasked": key_masked,
-            "baseUrl": kp["baseUrl"],
-            "docUrl": kp["docUrl"],
-            "models": models[:60] # top models
+            "baseUrl": fb.get("baseUrl", ""),
+            "docUrl": "",
+            "models": models
         })
 
     out = {
@@ -449,44 +575,54 @@ def save_model_config(hermes_home_str, provider, model, api_key=None, base_url=N
     env_file = h_home / ".env"
 
     try:
-        # 1. Update config.yaml
         if cfg_file.exists():
             with open(cfg_file, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
         else:
             content = "model:\n  default: ''\n  provider: ''\n"
 
-        # Update default model
         if re.search(r'(?m)^\s*default:\s*.*$', content):
-            content = re.sub(r'(?m)^(\s*default:\s*).*$', rf"\1'{model}'", content)
+            content = re.sub(r'(?m)^(\s*default:\s*).*$', r"\g<1>'" + model + "'", content)
         else:
-            content = re.sub(r'(?m)^(model:\s*)$', rf"\1\n  default: '{model}'", content)
+            content = re.sub(r'(?m)^(model:\s*)$', r"\g<1>\n  default: '" + model + "'", content)
 
-        # Update provider
         if re.search(r'(?m)^\s*provider:\s*.*$', content):
-            content = re.sub(r'(?m)^(\s*provider:\s*).*$', rf"\1{provider}", content)
+            content = re.sub(r'(?m)^(\s*provider:\s*).*$', r"\g<1>" + provider, content)
         else:
-            content = re.sub(r'(?m)^(model:\s*)$', rf"\1\n  provider: {provider}", content)
+            content = re.sub(r'(?m)^(model:\s*)$', r"\g<1>\n  provider: " + provider, content)
 
-        # Update base_url
-        if base_url:
+        if base_url and base_url != "-":
             if re.search(r'(?m)^\s*base_url:\s*.*$', content):
-                content = re.sub(r'(?m)^(\s*base_url:\s*).*$', rf"\1{base_url}", content)
+                content = re.sub(r'(?m)^(\s*base_url:\s*).*$', r"\g<1>" + base_url, content)
             else:
-                content = re.sub(r'(?m)^(\s*provider:\s*.*)$', rf"\1\n  base_url: {base_url}", content)
+                content = re.sub(r'(?m)^(\s*provider:\s*.*)$', r"\g<1>\n  base_url: " + base_url, content)
 
         with open(cfg_file, "w", encoding="utf-8") as f:
             f.write(content)
 
-        # 2. Update .env if key is provided and not masked
-        if api_key and not "•" in api_key:
+        if api_key and api_key != "-" and not "•" in api_key:
             env_var = None
-            for p in KNOWN_PROVIDERS:
-                if p["id"] == provider:
-                    env_var = p["envVar"]
-                    break
-            if not env_var and provider == "gemini":
+            if provider == "openrouter":
+                env_var = "OPENROUTER_API_KEY"
+            elif provider == "gemini":
                 env_var = "GOOGLE_API_KEY"
+            elif provider in {"openai-api", "openai"}:
+                env_var = "OPENAI_API_KEY"
+            elif provider == "anthropic":
+                env_var = "ANTHROPIC_API_KEY"
+            elif provider == "deepseek":
+                env_var = "DEEPSEEK_API_KEY"
+            elif provider == "groq":
+                env_var = "GROQ_API_KEY"
+            elif provider == "custom":
+                env_var = "CUSTOM_API_KEY"
+            else:
+                for fb in FALLBACK_PROVIDERS:
+                    if fb["id"] == provider and fb["envVar"]:
+                        env_var = fb["envVar"]
+                        break
+                if not env_var:
+                    env_var = f"{provider.upper().replace('-', '_')}_API_KEY"
 
             if env_var:
                 env_content = ""
@@ -499,7 +635,7 @@ def save_model_config(hermes_home_str, provider, model, api_key=None, base_url=N
                 if re.search(pattern, env_content):
                     env_content = re.sub(pattern, replacement, env_content, count=1)
                 else:
-                    env_content = env_content.rstrip() + f"\n{replacement}\n"
+                    env_content = env_content.rstrip() + "\n" + replacement + "\n"
 
                 with open(env_file, "w", encoding="utf-8") as f:
                     f.write(env_content)
@@ -508,6 +644,7 @@ def save_model_config(hermes_home_str, provider, model, api_key=None, base_url=N
     except Exception as e:
         sys.stderr.write(f"Error saving model config: {e}\n")
         print(json.dumps({"success": False, "error": str(e)}))
+
 
 if __name__ == "__main__":
     action = sys.argv[1] if len(sys.argv) > 1 else "list"
@@ -527,18 +664,16 @@ if __name__ == "__main__":
         get_model_config(h_home)
     elif action == "save_model":
         args = sys.argv[2:]
-        if len(args) >= 2 and (not Path(args[0]).exists() or args[0] in [p["id"] for p in KNOWN_PROVIDERS] or args[0] == ""):
-            if args[0] == "":
-                args = args[1:]
-            prov = args[0] if len(args) > 0 else "openrouter"
-            mdl = args[1] if len(args) > 1 else ""
-            key = args[2] if len(args) > 2 and args[2] != "-" else None
-            b_url = args[3] if len(args) > 3 and args[3] != "-" else None
-            h_home = ""
-        else:
-            h_home = args[0] if len(args) > 0 else ""
+        if len(args) > 0 and Path(args[0]).is_dir():
+            h_home = args[0]
             prov = args[1] if len(args) > 1 else "openrouter"
             mdl = args[2] if len(args) > 2 else ""
             key = args[3] if len(args) > 3 and args[3] != "-" else None
             b_url = args[4] if len(args) > 4 and args[4] != "-" else None
+        else:
+            prov = args[0] if len(args) > 0 else "openrouter"
+            mdl = args[1] if len(args) > 1 else ""
+            key = args[2] if len(args) > 2 and args[2] != "-" else None
+            b_url = args[3] if len(args) > 3 and args[3] != "-" else None
+            h_home = args[4] if len(args) > 4 and args[4] != "-" else ""
         save_model_config(h_home, prov, mdl, key, b_url)

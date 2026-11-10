@@ -524,17 +524,21 @@ function renderModels() {
 
     // 2. Populate Providers Dropdown
     const provSelect = document.getElementById('select-provider');
-    if (provSelect && provSelect.children.length === 0) {
+    if (provSelect) {
+        const curSelected = selectedProviderId || cur.provider || 'openrouter';
         provSelect.innerHTML = providers.map(p => `
-            <option value="${escapeHtml(p.id)}" ${p.id === (cur.provider || 'openrouter') ? 'selected' : ''}>
+            <option value="${escapeHtml(p.id)}" ${p.id === curSelected ? 'selected' : ''}>
                 ${escapeHtml(p.name)}
             </option>
         `).join('');
 
-        provSelect.addEventListener('change', () => {
-            selectedProviderId = provSelect.value;
-            updateProviderForm();
-        });
+        if (!provSelect.dataset.hasListener) {
+            provSelect.dataset.hasListener = 'true';
+            provSelect.addEventListener('change', () => {
+                selectedProviderId = provSelect.value;
+                updateProviderForm();
+            });
+        }
     }
 
     selectedProviderId = provSelect ? provSelect.value : (cur.provider || 'openrouter');
@@ -608,19 +612,20 @@ function populateModelSelect(prov) {
     if (selectedModelFilter === 'free') {
         filtered = allModels.filter(m => m.id.endsWith(':free') || (m.tag && m.tag.toLowerCase().includes('free')));
     } else if (selectedModelFilter === 'top') {
-        filtered = allModels.filter(m => m.tag && (m.tag.includes('Top') || m.tag.includes('Flagship') || m.tag.includes('Recommended') || m.tag.includes('Smart')));
+        filtered = allModels.filter(m => m.tag && (m.tag.includes('Top') || m.tag.includes('Flagship') || m.tag.includes('Recommended') || m.tag.includes('Smart') || m.tag.includes('Capable')));
     } else if (selectedModelFilter === 'fast') {
-        filtered = allModels.filter(m => m.tag && (m.tag.includes('Fast') || m.tag.includes('Instant') || m.id.includes('flash') || m.id.includes('haiku') || m.id.includes('mini')));
+        filtered = allModels.filter(m => m.tag && (m.tag.includes('Fast') || m.tag.includes('Instant') || m.id.includes('flash') || m.id.includes('haiku') || m.id.includes('mini') || m.id.includes('lite')));
     }
 
     if (countLabel) countLabel.textContent = `(${filtered.length} available)`;
 
     const curDefault = modelConfig?.current?.model;
-    modelSelect.innerHTML = filtered.map(m => `
-        <option value="${escapeHtml(m.id)}" ${m.id === curDefault ? 'selected' : ''}>
-            ${escapeHtml(m.name || m.id)} ${m.tag ? '[' + escapeHtml(m.tag) + ']' : ''}
-        </option>
-    `).join('');
+    modelSelect.innerHTML = filtered.map(m => {
+        const cleanName = (m.name || m.id).replace(/\s*\((free|Free)\)/g, '').replace(/\s*\[(free|Free)\]/g, '').trim();
+        const tagStr = m.tag ? ` [${escapeHtml(m.tag)}]` : '';
+        const isSelected = m.id === curDefault;
+        return `<option value="${escapeHtml(m.id)}" ${isSelected ? 'selected' : ''}>${escapeHtml(cleanName)}${tagStr}</option>`;
+    }).join('');
 
     // If current model is not in list, add it
     if (curDefault && !filtered.some(m => m.id === curDefault) && prov.id === modelConfig?.current?.provider) {
