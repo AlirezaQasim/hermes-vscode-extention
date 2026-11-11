@@ -94,8 +94,6 @@ function renderAll() {
             break;
         case 'models':
             renderModels();
-            break;
-        case 'settings':
             renderSettings();
             break;
     }
@@ -106,6 +104,7 @@ function renderAll() {
 // ==========================================================================
 
 function switchTab(tabId) {
+    if (tabId === 'settings') tabId = 'models';
     activeTab = tabId;
     document.querySelectorAll('.nav-tab').forEach(tab => {
         tab.classList.toggle('active', tab.getAttribute('data-tab') === tabId);
@@ -639,9 +638,21 @@ function executeCommand(cmd) {
         case '/skills':
             switchTab('skills');
             break;
+        case '/history':
+            switchTab('sessions');
+            break;
         case '/clear':
             vscode.postMessage({ type: 'clearHistory' });
             showToast('✓ گفت‌وگو پاک شد', 'info');
+            break;
+        case '/retry':
+            const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+            if (lastUserMsg && lastUserMsg.content) {
+                vscode.postMessage({ type: 'sendMessage', text: lastUserMsg.content });
+                showToast('↻ در حال ارسال مجدد آخرین پیام...', 'info');
+            } else {
+                showToast('پیامی برای ارسال مجدد وجود ندارد', 'warning');
+            }
             break;
         case '/setup':
             vscode.postMessage({ type: 'runSetup' });
@@ -1302,22 +1313,6 @@ function renderSettings() {
     const cwdLabel = document.getElementById('setting-cwd-label');
     if (cwdLabel && appConfig) {
         cwdLabel.textContent = appConfig.cwd || 'Workspace Root';
-    }
-
-    const statusDot = document.getElementById('settings-status-dot');
-    const statusText = document.getElementById('settings-status-text');
-    if (statusDot && statusText) {
-        if (connected) {
-            statusDot.style.background = '#22c55e';
-            statusDot.style.boxShadow = '0 0 10px rgba(34, 197, 94, 0.6)';
-            statusText.textContent = 'متصل به ایجنت لوکال (CLI Connected)';
-            statusText.style.color = '#22c55e';
-        } else {
-            statusDot.style.background = '#ef4444';
-            statusDot.style.boxShadow = '0 0 10px rgba(239, 68, 68, 0.6)';
-            statusText.textContent = 'ارتباط محلی قطع است (CLI Disconnected)';
-            statusText.style.color = '#ef4444';
-        }
     }
 }
 

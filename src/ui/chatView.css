@@ -1587,32 +1587,8 @@ pre {
 }
 
 /* ==========================================================================
-   Settings Panel
+   Integrated Settings & Recovery Styles
    ========================================================================== */
-
-#tab-settings {
-    padding: 16px;
-    gap: 16px;
-    display: flex;
-    flex-direction: column;
-    overflow-y: auto;
-}
-
-.settings-header {
-    margin-bottom: 4px;
-}
-
-.settings-title-group {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.settings-badge-icon {
-    font-size: 24px;
-    color: #e5b86a;
-    text-shadow: 0 0 16px rgba(229, 184, 106, 0.4);
-}
 
 .settings-card.obsidian-card {
     border: 1px solid rgba(229, 184, 106, 0.16);

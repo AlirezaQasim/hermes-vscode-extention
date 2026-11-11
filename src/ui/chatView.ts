@@ -510,23 +510,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     <span class="nav-icon">💬</span>
                     <span class="nav-text">چت</span>
                 </button>
-                <button class="nav-tab" data-tab="sessions" title="تاریخچه سشن‌ها / Sessions">
+                <button class="nav-tab" data-tab="sessions" title="تاریخچه گفتگوها / Sessions">
                     <span class="nav-icon">🕒</span>
-                    <span class="nav-text">سشن‌ها</span>
                     <span class="nav-badge" id="nav-sessions-count">0</span>
                 </button>
                 <button class="nav-tab" data-tab="skills" title="مهارت‌ها / Skills">
                     <span class="nav-icon">⚡</span>
-                    <span class="nav-text">مهارت‌ها</span>
                     <span class="nav-badge" id="nav-skills-count">0</span>
                 </button>
-                <button class="nav-tab" data-tab="models" title="مدل‌ها و اپراتورها / Models & Operators">
-                    <span class="nav-icon">🤖</span>
-                    <span class="nav-text">مدل‌ها</span>
-                </button>
-                <button class="nav-tab" data-tab="settings" title="تنظیمات هرمس / Settings">
+                <button class="nav-tab" data-tab="models" title="مدل‌ها و تنظیمات / Models & Settings">
                     <span class="nav-icon">⚙️</span>
-                    <span class="nav-text">تنظیمات</span>
                 </button>
             </nav>
         </header>
@@ -559,28 +552,38 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 <div class="popup-items" id="popup-command-items">
                     <div class="popup-item active" data-cmd="/new">
                         <span class="cmd-name">/new</span>
-                        <span class="cmd-desc">شروع گفت‌وگوی تازه</span>
+                        <span class="cmd-desc">شروع گفت‌وگوی تازه (New Session)</span>
                         <span class="cmd-key">↵</span>
                     </div>
                     <div class="popup-item" data-cmd="/model">
                         <span class="cmd-name">/model</span>
-                        <span class="cmd-desc">انتخاب مدل هوش مصنوعی</span>
+                        <span class="cmd-desc">انتخاب مدل و پرووایدر هوش مصنوعی</span>
                         <span class="cmd-num">02</span>
                     </div>
                     <div class="popup-item" data-cmd="/skills">
                         <span class="cmd-name">/skills</span>
-                        <span class="cmd-desc">مهارت‌های یادگرفته‌شده</span>
+                        <span class="cmd-desc">مشاهده و اجرای مهارت‌های هرمس</span>
                         <span class="cmd-num">03</span>
+                    </div>
+                    <div class="popup-item" data-cmd="/history">
+                        <span class="cmd-name">/history</span>
+                        <span class="cmd-desc">تاریخچه سشن‌ها و گفتگوها</span>
+                        <span class="cmd-num">04</span>
                     </div>
                     <div class="popup-item" data-cmd="/clear">
                         <span class="cmd-name">/clear</span>
-                        <span class="cmd-desc">پاک‌کردن گفت‌وگو</span>
-                        <span class="cmd-num">04</span>
+                        <span class="cmd-desc">پاک‌کردن صفحه گفت‌وگو</span>
+                        <span class="cmd-num">05</span>
+                    </div>
+                    <div class="popup-item" data-cmd="/retry">
+                        <span class="cmd-name">/retry</span>
+                        <span class="cmd-desc">ارسال مجدد آخرین پیام</span>
+                        <span class="cmd-num">06</span>
                     </div>
                     <div class="popup-item" data-cmd="/setup">
                         <span class="cmd-name">/setup</span>
-                        <span class="cmd-desc">راه‌اندازی اتصال محلی</span>
-                        <span class="cmd-num">05</span>
+                        <span class="cmd-desc">راه‌اندازی اتصال محلی (hermes setup)</span>
+                        <span class="cmd-num">07</span>
                     </div>
                 </div>
             </div>
@@ -746,101 +749,54 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     </button>
                 </div>
                 <div id="model-save-feedback" class="feedback-msg"></div>
-            </div>
-        </main>
 
-        <!-- Tab 5: Settings Panel -->
-        <main id="tab-settings" class="tab-panel">
-            <div class="panel-header settings-header">
-                <div class="settings-title-group">
-                    <span class="settings-badge-icon">⚚</span>
-                    <div>
-                        <h3>تنظیمات سیستم و ارتباط با هرمس</h3>
-                        <p class="panel-subtitle">مدیریت اتصال محلی Agent، بازیابی سرویس ACP، مجوزها و پوشه کاری</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Card 1: Connection & Recovery Controls (requested by user) -->
-            <div class="settings-card obsidian-card">
-                <div class="card-section-header">
-                    <span class="section-icon">📡</span>
-                    <div class="section-title-wrap">
-                        <span class="section-title">وضعیت اتصال و ابزارهای بازیابی (Recovery)</span>
-                        <span class="section-desc">در صورت قطع ارتباط افزونه با Agent یا عدم پاسخگویی، از این ابزارها برای بازیابی استفاده کنید.</span>
-                    </div>
-                </div>
-                
-                <div class="connection-status-row">
-                    <div class="conn-indicator-wrap">
-                        <span class="pulse-dot" id="settings-status-dot"></span>
-                        <span class="conn-status-text" id="settings-status-text">بررسی وضعیت اتصال...</span>
-                    </div>
-                    <span class="conn-mode-badge">پروتکل ACP لوکال</span>
-                </div>
-
-                <div class="setting-actions-grid">
-                    <button type="button" id="btn-reconnect-hermes" class="btn-setting-action btn-reconnect" title="اتصال مجدد ارتباط کلاینت با سرور لوکال هرمس">
-                        <span class="btn-icon">↻</span>
-                        <div class="btn-text-wrap">
-                            <span class="btn-main-label">اتصال مجدد / Reconnect ACP</span>
-                            <span class="btn-sub-label">برقراری دوباره پروتکل ارتباطی با پردازش هرمس</span>
+                <!-- Integrated Settings & Agent Recovery Section -->
+                <div class="settings-card obsidian-card" style="margin-top: 24px;">
+                    <div class="card-section-header">
+                        <span class="section-icon">⚙️</span>
+                        <div class="section-title-wrap">
+                            <span class="section-title">تنظیمات سیستم و بازیابی هرمس (Agent Settings & Recovery)</span>
+                            <span class="section-desc">ابزارهای اتصال مجدد با Agent، اجرای تنظیمات ترمینال، مجوزهای خودکار و مسیرها</span>
                         </div>
-                    </button>
-                    <button type="button" id="btn-run-setup-terminal" class="btn-setting-action btn-setup" title="اجرای مستقیم دستور هرمس ستاپ در ترمینال وی‌اس‌کد">
-                        <span class="btn-icon">⚙️</span>
-                        <div class="btn-text-wrap">
-                            <span class="btn-main-label">اجرای 'hermes setup' در ترمینال</span>
-                            <span class="btn-sub-label">پیکربندی کلیدها و مدل‌های هسته هرمس در ترمینال</span>
+                    </div>
+
+                    <div class="setting-actions-grid" style="margin-top: 10px;">
+                        <button type="button" id="btn-reconnect-hermes" class="btn-setting-action" title="اتصال مجدد ارتباط کلاینت با سرور لوکال هرمس">
+                            <span class="btn-icon">↻</span>
+                            <div class="btn-text-wrap">
+                                <span class="btn-main-label">اتصال مجدد / Reconnect Hermes ACP</span>
+                                <span class="btn-sub-label">بازیابی سریع ارتباط کلاینت با ایجنت در صورت قطعی</span>
+                            </div>
+                        </button>
+                        <button type="button" id="btn-run-setup-terminal" class="btn-setting-action" title="اجرای مستقیم دستور هرمس ستاپ در ترمینال وی‌اس‌کد">
+                            <span class="btn-icon">⚙️</span>
+                            <div class="btn-text-wrap">
+                                <span class="btn-main-label">اجرای 'hermes setup' در ترمینال</span>
+                                <span class="btn-sub-label">پیکربندی کلیدها و مدل‌های هسته هرمس در ترمینال</span>
+                            </div>
+                        </button>
+                    </div>
+
+                    <div class="setting-row" style="margin-top: 12px; border-top: 1px solid rgba(229, 184, 106, 0.12); padding-top: 12px;">
+                        <div class="setting-info">
+                            <span class="setting-name">تأیید خودکار ابزارها (Auto-Approve Tool Permissions)</span>
+                            <span class="setting-desc">اجرای مستقیم دستورات و ویرایش فایل‌ها بدون نیاز به تأیید دستی برای هر مرحله.</span>
                         </div>
-                    </button>
-                </div>
-            </div>
+                        <label class="switch">
+                            <input type="checkbox" id="setting-auto-approve">
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
 
-            <!-- Card 2: Permissions & Safety -->
-            <div class="settings-card obsidian-card">
-                <div class="card-section-header">
-                    <span class="section-icon">🛡️</span>
-                    <div class="section-title-wrap">
-                        <span class="section-title">مجوزها و امنیت (Permissions & Safety)</span>
-                        <span class="section-desc">کنترل نحوه تعامل ایجنت هرمس با فایل‌ها و دستورات ترمینال سیستم</span>
-                    </div>
-                </div>
-
-                <div class="setting-row">
-                    <div class="setting-info">
-                        <span class="setting-name">تأیید خودکار ابزارها (Auto-Approve Tool Permissions)</span>
-                        <span class="setting-desc">اجرای دستورات، خواندن و ذخیره فایل‌ها بدون درخواست تأیید دستی برای هر مرحله.</span>
-                    </div>
-                    <label class="switch">
-                        <input type="checkbox" id="setting-auto-approve">
-                        <span class="slider round"></span>
-                    </label>
-                </div>
-            </div>
-
-            <!-- Card 3: Workspace & Environment -->
-            <div class="settings-card obsidian-card">
-                <div class="card-section-header">
-                    <span class="section-icon">📁</span>
-                    <div class="section-title-wrap">
-                        <span class="section-title">محیط کاری و مسیرها (Workspace & Environment)</span>
-                        <span class="section-desc">پوشه کاری فعال و فایل‌های ذخیره‌سازی محلی</span>
-                    </div>
-                </div>
-
-                <div class="env-info-list">
-                    <div class="env-info-item">
-                        <span class="env-info-key">Working Directory (CWD):</span>
-                        <code class="env-info-val" id="setting-cwd-label">Workspace Root</code>
-                    </div>
-                    <div class="env-info-item">
-                        <span class="env-info-key">Hermes Config File:</span>
-                        <code class="env-info-val">%LOCALAPPDATA%\hermes\config.yaml</code>
-                    </div>
-                    <div class="env-info-item">
-                        <span class="env-info-key">Sessions Database:</span>
-                        <code class="env-info-val">%LOCALAPPDATA%\hermes\state.db</code>
+                    <div class="env-info-list" style="margin-top: 8px;">
+                        <div class="env-info-item">
+                            <span class="env-info-key">Working Directory (CWD):</span>
+                            <code class="env-info-val" id="setting-cwd-label">Workspace Root</code>
+                        </div>
+                        <div class="env-info-item">
+                            <span class="env-info-key">Hermes Config File:</span>
+                            <code class="env-info-val">%LOCALAPPDATA%\hermes\config.yaml</code>
+                        </div>
                     </div>
                 </div>
             </div>
