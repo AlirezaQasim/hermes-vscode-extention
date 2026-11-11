@@ -37,6 +37,11 @@ temp/
 *.tmp
 *.temp
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
 # Package
 package-lock.json
 yarn.lock

@@ -14,6 +14,11 @@ let appConfig = {};
 let selectedProviderId = 'openrouter';
 let selectedModelFilter = 'all';
 
+// Generation / Streaming State
+let isGenerating = false;
+let generationTimerInterval = null;
+let generationSeconds = 0;
+
 // Listen for messages from extension
 window.addEventListener('message', event => {
     const message = event.data;
@@ -29,10 +34,48 @@ window.addEventListener('message', event => {
             if (message.sessions) sessions = message.sessions;
             if (message.skills) skills = message.skills;
             if (message.config) appConfig = message.config;
+
+            // Detect if last message is a running tool or unfinished turn
+            const lastMsg = messages[messages.length - 1];
+            if (lastMsg && (lastMsg.role === 'tool' || (lastMsg.toolCalls && lastMsg.toolCalls.some(t => t.status === 'running')))) {
+                setGenerating(true);
+            } else if (isGenerating && lastMsg && lastMsg.role === 'assistant' && !lastMsg.thinking && !lastMsg.toolCalls) {
+                setGenerating(false);
+            }
+
             renderAll();
             break;
     }
 });
+
+function setGenerating(generating) {
+    if (isGenerating === generating) return;
+    isGenerating = generating;
+    if (isGenerating) {
+        generationSeconds = 0;
+        clearInterval(generationTimerInterval);
+        generationTimerInterval = setInterval(() => {
+            generationSeconds++;
+            const mins = String(Math.floor(generationSeconds / 60)).padStart(2, '0');
+            const secs = String(generationSeconds % 60).padStart(2, '0');
+            const timerEl = document.getElementById('capsule-timer');
+            if (timerEl) {
+                timerEl.textContent = `${mins}:${secs}`;
+                timerEl.style.display = 'inline-block';
+            }
+            const statusLeft = document.getElementById('footer-left-status');
+            if (statusLeft) statusLeft.textContent = `Thinking · ${generationSeconds}s`;
+        }, 1000);
+    } else {
+        clearInterval(generationTimerInterval);
+        const timerEl = document.getElementById('capsule-timer');
+        if (timerEl) timerEl.style.display = 'none';
+        const statusLeft = document.getElementById('footer-left-status');
+        if (statusLeft) statusLeft.textContent = 'HERMES / v0.8';
+    }
+    renderComposer();
+    renderNavbar();
+}
 
 function renderAll() {
     renderNavbar();
@@ -59,7 +102,7 @@ function renderAll() {
 }
 
 // ==========================================================================
-// Navigation & Tabs
+// Navigation & Tabs (Figma Style)
 // ==========================================================================
 
 function switchTab(tabId) {
@@ -89,6 +132,46 @@ function renderNavbar() {
     document.querySelectorAll('.tab-panel').forEach(panel => {
         panel.classList.toggle('active', panel.id === `tab-${activeTab}`);
     });
+
+    // HUD Status Pill
+    const hudPill = document.getElementById('hud-status-pill');
+    const hudText = document.getElementById('hud-status-text');
+    if (hudPill && hudText) {
+        hudPill.classList.remove('connected', 'thinking', 'disconnected');
+        if (isGenerating) {
+            hudPill.classList.add('thinking');
+            hudText.textContent = 'Thinking · Local';
+        } else if (connected) {
+            hudPill.classList.add('connected');
+            hudText.textContent = 'Local CLI';
+        } else {
+            hudPill.classList.add('disconnected');
+            hudText.textContent = 'CLI disconnected';
+        }
+    }
+
+    // Disconnected Alert Banner (Figma Image 4)
+    const banner = document.getElementById('cli-disconnected-banner');
+    if (banner) {
+        banner.style.display = (!connected && activeTab === 'chat') ? 'block' : 'none';
+    }
+
+    // In-capsule model pill
+    const capsuleModel = document.getElementById('capsule-model-name');
+    if (capsuleModel) {
+        const cur = modelConfig?.current?.model || 'nemotron-3-ultra';
+        capsuleModel.textContent = cur.split('/').pop().replace(/:free$/, '');
+    }
+
+    // Footer right text
+    const footerRightText = document.getElementById('footer-right-text');
+    const footerDot = document.querySelector('.footer-dot');
+    if (footerRightText) {
+        footerRightText.textContent = connected ? 'CLI connected' : 'Disconnected';
+    }
+    if (footerDot) {
+        footerDot.style.backgroundColor = connected ? 'var(--hermes-emerald)' : 'var(--hermes-crimson)';
+    }
 }
 
 // Setup navbar click listeners
@@ -99,20 +182,26 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
     });
 });
 
+document.getElementById('hud-status-pill')?.addEventListener('click', () => {
+    if (!connected) {
+        vscode.postMessage({ type: 'reconnect' });
+        showToast('↻ در حال تلاش برای اتصال به هرمس...', 'info');
+    } else {
+        switchTab('settings');
+    }
+});
+
+// Setup banner button
+document.getElementById('btn-banner-run-setup')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'runSetup' });
+    showToast('⚙️ دستور hermes setup در ترمینال اجرا شد', 'info');
+});
+
 // ==========================================================================
-// Chat Tab
+// Chat Tab & Messages (Figma Image 2, 3)
 // ==========================================================================
 
 function renderChatHeader() {
-    const header = document.getElementById('chat-header');
-    if (!header) return;
-
-    header.className = connected ? 'connected' : 'disconnected';
-    const statusLabel = header.querySelector('.status-label');
-    if (statusLabel) {
-        statusLabel.textContent = connected ? 'Connected' : 'Disconnected';
-    }
-
     // Model badge
     const modelBadge = document.getElementById('header-model-badge');
     if (modelBadge) {
@@ -161,68 +250,82 @@ function renderMessages() {
     if (!container) return;
 
     if (!messages || messages.length === 0) {
-        const curModel = modelConfig?.current?.model || 'Hermes AI';
-        const shortModel = curModel.split('/').pop().replace(/:free$/, '');
+        // Figma Image 2: Astrolabe Mission Hub
         container.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-icon-wrap">
-                    <div class="empty-icon-halo"></div>
-                    <div class="empty-icon">⚚</div>
+            <div class="mission-hub-screen">
+                <div class="mission-top-banner">
+                    <span class="mission-banner-sub">AUTONOMOUS BY DESIGN. LOCAL BY DEFAULT.</span>
+                    <div class="mission-status-grid">
+                        <span class="status-cell-left">CORE / 01</span>
+                        <span class="status-cell-right">SYSTEM READY</span>
+                    </div>
                 </div>
-                <h2 class="empty-title">Hermes AI Assistant</h2>
-                <p class="empty-subtitle">Autonomous AI agent running on <span class="empty-model-pill" title="${escapeHtml(curModel)}">${escapeHtml(shortModel)}</span></p>
-                <div class="quick-prompts">
-                    <button class="quick-prompt" data-prompt="Explain this project architecture and codebase structure">
-                        <span class="quick-prompt-icon">🔍</span>
-                        <div class="quick-prompt-text">
-                            <span class="quick-prompt-title">Explain Architecture</span>
-                            <span class="quick-prompt-desc">Codebase structure & dependencies</span>
+
+                <!-- Astrolabe / Celestial Compass Dial -->
+                <div class="astrolabe-dial-wrap">
+                    <div class="astrolabe-dial">
+                        <div class="dial-orbit-ring">
+                            <div class="dial-orbit-planet"></div>
                         </div>
-                        <span class="quick-prompt-arrow">›</span>
-                    </button>
-                    <button class="quick-prompt" data-prompt="Review recent git commits and current git status">
-                        <span class="quick-prompt-icon">📜</span>
-                        <div class="quick-prompt-text">
-                            <span class="quick-prompt-title">Review Git Status</span>
-                            <span class="quick-prompt-desc">Recent commits & uncommitted changes</span>
+                        <div class="dial-ticks-ring"></div>
+                        <div class="dial-inner-ring">
+                            <div class="dial-core-emblem">⚚</div>
                         </div>
-                        <span class="quick-prompt-arrow">›</span>
-                    </button>
-                    <button class="quick-prompt" data-prompt="Scan for potential bugs, errors, or performance bottlenecks in this workspace">
-                        <span class="quick-prompt-icon">⚡</span>
-                        <div class="quick-prompt-text">
-                            <span class="quick-prompt-title">Find Bugs & Optimize</span>
-                            <span class="quick-prompt-desc">Detect issues, security & bottlenecks</span>
+                    </div>
+                    <div class="mission-core-label">HERMES MISSION CORE</div>
+                </div>
+
+                <div class="mission-headings">
+                    <h2 class="mission-title">مأموریت بعدی‌تان چیست؟</h2>
+                    <p class="mission-subtitle">یک مأموریت انتخاب کنید یا از هرمس بخواهید.</p>
+                </div>
+
+                <!-- Suggested Mission Cards (Figma Image 2) -->
+                <div class="mission-cards-container">
+                    <!-- Card 1: Project Intelligence -->
+                    <div class="mission-card" data-prompt="معماری این پروژه را بررسی کن و برای بهینه‌سازی، یک نقشهٔ راه بده.">
+                        <div class="card-top-row">
+                            <span class="card-tag">PROJECT INTELLIGENCE</span>
+                            <span class="card-icon-box">⊞</span>
                         </div>
-                        <span class="quick-prompt-arrow">›</span>
-                    </button>
-                    <button class="quick-prompt" data-prompt="List available skills and how they can be used for this project">
-                        <span class="quick-prompt-icon">🧠</span>
-                        <div class="quick-prompt-text">
-                            <span class="quick-prompt-title">Explore Skills</span>
-                            <span class="quick-prompt-desc">Discovered tools & learned capabilities</span>
+                        <h3 class="card-title">معماری و تحلیل پروژه</h3>
+                        <p class="card-desc">از ساختار کد تا نقشهٔ قدم بعدی.</p>
+                        <span class="card-arrow-btn">←</span>
+                    </div>
+
+                    <!-- Card 2: Debug & Optimize -->
+                    <div class="mission-card" data-prompt="ریشه خطاهای احتمالی، باگ‌ها و مشکلات عملکردی در این پروژه را پیدا و تحلیل کن.">
+                        <div class="card-top-row">
+                            <span class="card-tag">DEBUG & OPTIMIZE</span>
+                            <span class="card-icon-box">⚡</span>
                         </div>
-                        <span class="quick-prompt-arrow">›</span>
-                    </button>
+                        <h3 class="card-title">عیب‌یابی و بهینه‌سازی</h3>
+                        <p class="card-desc">ریشهٔ خطا را پیدا کن؛ هوشمندانه حلش کن.</p>
+                        <span class="card-arrow-btn">←</span>
+                    </div>
+                </div>
+
+                <!-- Workspace Sub-bar -->
+                <div class="mission-workspace-subbar">
+                    <span class="subbar-pill workspace-pill">📁 hermes-workspace</span>
+                    <span class="subbar-divider">|</span>
+                    <span class="subbar-pill local-pill">🛡️ فقط روی دستگاه شما</span>
                 </div>
             </div>
         `;
 
-        container.querySelectorAll('.quick-prompt').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const prompt = btn.getAttribute('data-prompt');
+        container.querySelectorAll('.mission-card').forEach(card => {
+            card.addEventListener('click', () => {
+                const prompt = card.getAttribute('data-prompt');
                 if (prompt) {
-                    const input = document.getElementById('prompt-input');
-                    if (input) {
-                        input.value = prompt;
-                        sendPrompt();
-                    }
+                    sendPromptText(prompt);
                 }
             });
         });
         return;
     }
 
+    // Populated conversation (Figma Image 3)
     container.innerHTML = messages.map(msg => renderMessage(msg)).join('');
     container.scrollTop = container.scrollHeight;
 
@@ -269,9 +372,25 @@ function renderMessages() {
 
 function renderMessage(msg) {
     const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-    const roleClass = `role-${msg.role || 'assistant'}`;
-    const roleDisplay = msg.role === 'assistant' ? 'Hermes' : (msg.role ? msg.role.charAt(0).toUpperCase() + msg.role.slice(1) : 'Assistant');
 
+    if (msg.role === 'user') {
+        let contentHtml = '';
+        if (typeof marked !== 'undefined') {
+            try { contentHtml = marked.parse(msg.content || ''); } catch { contentHtml = escapeHtml(msg.content || ''); }
+        } else {
+            contentHtml = escapeHtml(msg.content || '');
+        }
+        return `
+            <div class="message role-user" data-id="${escapeHtml(msg.id || '')}">
+                <div class="user-bubble-header">
+                    <span class="user-label">شما</span>
+                </div>
+                <div class="user-bubble-content">${contentHtml}</div>
+            </div>
+        `;
+    }
+
+    // Assistant message (Figma Image 3)
     let contentHtml = '';
     if (msg.role === 'tool') {
         contentHtml = `<pre><code>${escapeHtml(typeof msg.content === 'object' ? JSON.stringify(msg.content, null, 2) : String(msg.content))}</code></pre>`;
@@ -287,124 +406,375 @@ function renderMessage(msg) {
         thinkingHtml = `
             <div class="thinking">
                 <details open>
-                    <summary>💭 Thinking</summary>
+                    <summary>💭 تفکر هوشمندانه / Thinking</summary>
                     <div class="thinking-content">${thinkingParsed}</div>
                 </details>
             </div>
         `;
     }
 
-    let toolCallsHtml = '';
+    // Live Execution Timeline (Figma Image 3)
+    let timelineHtml = '';
     if (msg.toolCalls && msg.toolCalls.length > 0) {
-        toolCallsHtml = msg.toolCalls.map(tc => renderToolCall(tc)).join('');
+        const stepsHtml = msg.toolCalls.map(tc => renderTimelineStep(tc)).join('');
+        timelineHtml = `
+            <div class="execution-timeline-container">
+                ${stepsHtml}
+            </div>
+            <div class="learned-skill-card">
+                <span class="learned-skill-icon">⚡</span>
+                <div class="learned-skill-body">
+                    <h4 class="learned-skill-title">از این پروژه یاد می‌گیرم</h4>
+                    <p class="learned-skill-desc">الگوهای معماری در حافظهٔ محلی ذخیره می‌شوند.</p>
+                </div>
+            </div>
+            <div class="safety-guarantee-pill">
+                <span>🛡️ هیچ تغییری بدون تأیید شما اعمال نمی‌شود.</span>
+            </div>
+        `;
     }
 
     return `
-        <div class="message ${roleClass}" data-id="${escapeHtml(msg.id || '')}">
-            <div class="message-header">
-                <span class="role-badge">${escapeHtml(roleDisplay)}</span>
-                <span class="time">${escapeHtml(time)}</span>
+        <div class="message role-assistant" data-id="${escapeHtml(msg.id || '')}">
+            <div class="assistant-header-row">
+                <div class="assistant-avatar">⚚</div>
+                <span class="assistant-name">هرمس</span>
+                <span class="assistant-status-badge">در حال بررسی، قدم‌به‌قدم</span>
             </div>
-            <div class="message-content">${contentHtml}</div>
+            <div class="assistant-content">${contentHtml}</div>
             ${thinkingHtml}
-            ${toolCallsHtml}
+            ${timelineHtml}
         </div>
     `;
 }
 
-function renderToolCall(tc) {
-    const statusClass = `status-${tc.status || 'running'}`;
-    const statusIcon = tc.status === 'done' ? '✓' : tc.status === 'error' ? '✗' : '⟳';
+function renderTimelineStep(tc) {
+    const isDone = tc.status === 'done';
+    const isError = tc.status === 'error';
+    const isRunning = !isDone && !isError;
 
-    let argsHtml = '';
-    try {
-        argsHtml = `<pre><code>${escapeHtml(JSON.stringify(tc.args, null, 2))}</code></pre>`;
-    } catch {
-        argsHtml = `<pre><code>${escapeHtml(String(tc.args))}</code></pre>`;
+    const nodeIcon = isDone ? '✓' : isError ? '✗' : '>_';
+    const stepClass = isDone ? 'step-done' : isError ? 'step-error' : 'step-running';
+    const durationText = isDone ? (tc.duration ? `${tc.duration}s` : '0.4s') : (isRunning ? 'LIVE' : '');
+
+    // Friendly Iranian title based on tool kind or name
+    let friendlyTitle = tc.title;
+    if (!friendlyTitle) {
+        if (tc.name === 'read_directory') friendlyTitle = 'ساختار پروژه خوانده شد';
+        else if (tc.name === 'read_file') friendlyTitle = 'وابستگی‌ها و فایل‌ها شناسایی شدند';
+        else if (tc.name === 'run_command') friendlyTitle = 'دستور سیستم اجرا شد';
+        else friendlyTitle = `ابزار ${tc.name || 'سیستم'} اجرا شد`;
     }
 
-    let resultHtml = '';
-    if (tc.result) {
-        try {
-            resultHtml = `<div class="tool-result"><pre><code>${escapeHtml(JSON.stringify(tc.result, null, 2))}</code></pre></div>`;
-        } catch {
-            resultHtml = `<div class="tool-result"><pre><code>${escapeHtml(String(tc.result))}</code></pre></div>`;
+    let argsPreview = '';
+    if (tc.args) {
+        if (typeof tc.args === 'object') {
+            const vals = Object.values(tc.args).filter(v => typeof v === 'string').join(' · ');
+            argsPreview = `${tc.name || 'tool'} · ${vals || 'args'}`;
+        } else {
+            argsPreview = `${tc.name || 'tool'} · ${String(tc.args)}`;
+        }
+    } else {
+        argsPreview = tc.name || 'tool';
+    }
+
+    return `
+        <div class="timeline-step ${stepClass}">
+            <div class="timeline-node"><span class="node-icon">${nodeIcon}</span></div>
+            <div class="timeline-body">
+                <div class="timeline-title-row">
+                    <span class="step-title">${escapeHtml(friendlyTitle)}</span>
+                    <span class="step-time">${durationText}</span>
+                </div>
+                <div class="step-meta">${escapeHtml(argsPreview)}</div>
+            </div>
+        </div>
+    `;
+}
+
+// ==========================================================================
+// Command Capsule & Interactions (Figma Image 2, 3, 4)
+// ==========================================================================
+
+function renderComposer() {
+    const actionBtn = document.getElementById('btn-capsule-action');
+    const actionIcon = document.getElementById('capsule-action-icon');
+    const input = document.getElementById('prompt-input');
+
+    if (actionBtn && actionIcon) {
+        if (isGenerating) {
+            actionBtn.classList.add('streaming');
+            actionIcon.textContent = '⏹';
+            actionBtn.title = 'توقف پاسخ (Stop)';
+        } else {
+            actionBtn.classList.remove('streaming');
+            actionIcon.textContent = '↑';
+            actionBtn.title = 'ارسال پیام (Enter)';
         }
     }
 
-    return `
-        <div class="tool-call ${statusClass}">
-            <div class="tool-header">
-                <span class="tool-kind">${escapeHtml(tc.kind || 'tool')}</span>
-                <span class="tool-name">${escapeHtml(tc.name || '')}</span>
-                <span class="tool-status">${statusIcon}</span>
-            </div>
-            <div class="tool-args">${argsHtml}</div>
-            ${resultHtml}
-        </div>
-    `;
+    if (input) {
+        input.placeholder = isGenerating ? 'پیام بعدی‌تان را بنویسید...' : 'از هرمس بخواهید؛ بقیه‌اش با من.';
+    }
 }
 
-function renderComposer() {
-    const sendBtn = document.getElementById('btn-send-prompt');
+function sendPromptText(text) {
+    if (!text || !text.trim()) return;
     const input = document.getElementById('prompt-input');
-
-    if (sendBtn) sendBtn.disabled = !connected;
     if (input) {
-        input.disabled = !connected;
-        input.placeholder = connected ? 'Ask Hermes anything... (Enter to send, Shift+Enter for newline)' : 'Connect to Hermes first';
+        input.value = '';
+        input.style.height = 'auto';
     }
+    setGenerating(true);
+    vscode.postMessage({ type: 'sendPrompt', text: text.trim() });
 }
 
 function sendPrompt() {
     const input = document.getElementById('prompt-input');
     if (!input || !input.value.trim()) return;
-
-    const text = input.value.trim();
-    input.value = '';
-    input.style.height = 'auto';
-
-    vscode.postMessage({ type: 'sendPrompt', text });
+    sendPromptText(input.value);
 }
 
-// Keyboard shortcuts for prompt
+// Keyboard navigation and Command Mode (Image 4)
 const promptInput = document.getElementById('prompt-input');
+const commandPopup = document.getElementById('command-mode-popup');
+const commandCapsule = document.getElementById('command-capsule');
+
 if (promptInput) {
-    promptInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendPrompt();
-        }
+    promptInput.addEventListener('focus', () => {
+        commandCapsule?.classList.add('focused');
     });
+    promptInput.addEventListener('blur', () => {
+        commandCapsule?.classList.remove('focused');
+    });
+
     promptInput.addEventListener('input', () => {
         promptInput.style.height = 'auto';
-        promptInput.style.height = Math.min(promptInput.scrollHeight, 180) + 'px';
+        promptInput.style.height = Math.min(promptInput.scrollHeight, 140) + 'px';
+
+        const val = promptInput.value.trim();
+        if (val.startsWith('/')) {
+            showCommandPopup();
+        } else {
+            hideCommandPopup();
+        }
+    });
+
+    promptInput.addEventListener('keydown', e => {
+        if (commandPopup && commandPopup.style.display !== 'none') {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                hideCommandPopup();
+                promptInput.value = '';
+                return;
+            }
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                navigatePopup(1);
+                return;
+            }
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                navigatePopup(-1);
+                return;
+            }
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const activeItem = commandPopup.querySelector('.popup-item.active');
+                if (activeItem) {
+                    const cmd = activeItem.getAttribute('data-cmd');
+                    executeCommand(cmd);
+                }
+                return;
+            }
+        }
+
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            if (isGenerating) {
+                vscode.postMessage({ type: 'cancelTurn' });
+                setGenerating(false);
+            } else {
+                sendPrompt();
+            }
+        }
     });
 }
 
-const sendPromptBtn = document.getElementById('btn-send-prompt');
-if (sendPromptBtn) {
-    sendPromptBtn.addEventListener('click', sendPrompt);
+function showCommandPopup() {
+    if (!commandPopup) return;
+    commandPopup.style.display = 'block';
+    commandCapsule?.classList.add('command-mode');
 }
 
-// Composer toolbar buttons
-document.getElementById('btn-new-session')?.addEventListener('click', () => {
-    vscode.postMessage({ type: 'newSession' });
+function hideCommandPopup() {
+    if (!commandPopup) return;
+    commandPopup.style.display = 'none';
+    commandCapsule?.classList.remove('command-mode');
+}
+
+function navigatePopup(direction) {
+    const items = Array.from(commandPopup.querySelectorAll('.popup-item'));
+    if (items.length === 0) return;
+    let idx = items.findIndex(el => el.classList.contains('active'));
+    if (idx === -1) idx = 0;
+    items[idx].classList.remove('active');
+    idx = (idx + direction + items.length) % items.length;
+    items[idx].classList.add('active');
+    items[idx].scrollIntoView({ block: 'nearest' });
+}
+
+function executeCommand(cmd) {
+    hideCommandPopup();
+    if (promptInput) promptInput.value = '';
+
+    switch (cmd) {
+        case '/new':
+            vscode.postMessage({ type: 'newSession' });
+            showToast('✓ گفتگوی جدید آغاز شد', 'success');
+            break;
+        case '/model':
+            toggleModelQuickPopover();
+            break;
+        case '/skills':
+            switchTab('skills');
+            break;
+        case '/clear':
+            vscode.postMessage({ type: 'clearHistory' });
+            showToast('✓ گفت‌وگو پاک شد', 'info');
+            break;
+        case '/setup':
+            vscode.postMessage({ type: 'runSetup' });
+            showToast('⚙️ راه‌اندازی محلی اجرا شد', 'info');
+            break;
+    }
+}
+
+// Popup item clicks
+document.querySelectorAll('#popup-command-items .popup-item').forEach(item => {
+    item.addEventListener('click', () => {
+        const cmd = item.getAttribute('data-cmd');
+        if (cmd) executeCommand(cmd);
+    });
 });
-document.getElementById('btn-switch-model-quick')?.addEventListener('click', () => {
+
+// Slash chip click
+document.getElementById('btn-trigger-slash')?.addEventListener('click', () => {
+    if (promptInput) {
+        promptInput.value = '/';
+        promptInput.focus();
+        showCommandPopup();
+    }
+});
+
+// Action Button (Send / Stop)
+document.getElementById('btn-capsule-action')?.addEventListener('click', () => {
+    if (isGenerating) {
+        vscode.postMessage({ type: 'cancelTurn' });
+        setGenerating(false);
+        showToast('⏹ فرآیند متوقف شد', 'info');
+    } else {
+        sendPrompt();
+    }
+});
+
+// Capsule New & Clear buttons
+document.getElementById('btn-capsule-new')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'newSession' });
+    showToast('✓ گفتگوی جدید آغاز شد', 'success');
+});
+
+document.getElementById('btn-capsule-clear')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'clearHistory' });
+    showToast('✓ گفت‌وگو پاک شد', 'info');
+});
+
+// ==========================================================================
+// In-Capsule Quick Model Popover
+// ==========================================================================
+
+const quickModelsList = [
+    { id: 'nvidia/nemotron-3-ultra-550b-a55b:free', name: 'NVIDIA Nemotron 3 Ultra (Free)', provider: 'openrouter' },
+    { id: 'nvidia/nemotron-3.5-lightning:free', name: 'NVIDIA Nemotron 3.5 Lightning (Free)', provider: 'openrouter' },
+    { id: 'google/gemma-4-31b-it:free', name: 'Google Gemma 4 31B (Free)', provider: 'openrouter' },
+    { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'google' },
+    { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', provider: 'anthropic' },
+    { id: 'deepseek/deepseek-r1', name: 'DeepSeek R1', provider: 'deepseek' },
+    { id: 'openai/gpt-4o', name: 'OpenAI GPT-4o', provider: 'openai' }
+];
+
+function toggleModelQuickPopover() {
+    const popover = document.getElementById('model-quick-popover');
+    if (!popover) return;
+
+    if (popover.style.display !== 'none') {
+        popover.style.display = 'none';
+        return;
+    }
+
+    const listEl = document.getElementById('popover-model-list');
+    if (listEl) {
+        const curModel = modelConfig?.current?.model || '';
+        const curProvider = modelConfig?.current?.provider || 'openrouter';
+        const activeProvObj = (modelConfig?.providers || []).find(p => p.id === curProvider);
+
+        let modelsToShow = [];
+        if (activeProvObj && activeProvObj.models && activeProvObj.models.length > 0) {
+            modelsToShow = activeProvObj.models.slice(0, 12).map(m => ({
+                id: m.id,
+                name: m.name ? `${m.name}${m.tag ? ' [' + m.tag + ']' : ''}` : m.id,
+                provider: curProvider
+            }));
+            if (curModel && !modelsToShow.some(m => m.id === curModel)) {
+                modelsToShow.unshift({
+                    id: curModel,
+                    name: `${curModel} [Current]`,
+                    provider: curProvider
+                });
+            }
+        } else {
+            modelsToShow = quickModelsList;
+        }
+
+        listEl.innerHTML = modelsToShow.map(m => {
+            const isActive = m.id === curModel;
+            return `
+                <div class="popover-model-item ${isActive ? 'active' : ''}" data-model="${escapeHtml(m.id)}" data-provider="${escapeHtml(m.provider)}">
+                    ${isActive ? '● ' : '○ '}${escapeHtml(m.name)}
+                </div>
+            `;
+        }).join('');
+
+        listEl.querySelectorAll('.popover-model-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const model = item.getAttribute('data-model');
+                const provider = item.getAttribute('data-provider');
+                vscode.postMessage({
+                    type: 'saveModelConfig',
+                    provider: provider || curProvider,
+                    model
+                });
+                showToast(`🚀 در حال تنظیم ${model}...`, 'info');
+                popover.style.display = 'none';
+            });
+        });
+    }
+
+    popover.style.display = 'block';
+}
+
+document.getElementById('capsule-model-pill')?.addEventListener('click', toggleModelQuickPopover);
+document.getElementById('btn-close-model-popover')?.addEventListener('click', () => {
+    const popover = document.getElementById('model-quick-popover');
+    if (popover) popover.style.display = 'none';
+});
+document.getElementById('btn-open-full-models-tab')?.addEventListener('click', () => {
+    const popover = document.getElementById('model-quick-popover');
+    if (popover) popover.style.display = 'none';
     switchTab('models');
 });
-document.getElementById('btn-stop-turn')?.addEventListener('click', () => {
-    vscode.postMessage({ type: 'cancelTurn' });
-});
-document.getElementById('btn-clear-chat')?.addEventListener('click', () => {
-    vscode.postMessage({ type: 'clearHistory' });
-});
 
-// ==========================================================================
-// Toast Notification System
-// ==========================================================================
-
+// Toast notification
 function showToast(message, type = 'info') {
     const toast = document.getElementById('hermes-toast');
     if (!toast) return;
@@ -418,10 +788,7 @@ function showToast(message, type = 'info') {
     }, 2800);
 }
 
-// ==========================================================================
 // Confirmation Modal System
-// ==========================================================================
-
 let pendingModalAction = null;
 
 function showConfirmationModal({ icon, title, message, calloutHtml, confirmText, confirmClass, onConfirm }) {
@@ -468,6 +835,7 @@ document.getElementById('modal-btn-confirm')?.addEventListener('click', () => {
 document.getElementById('hermes-modal')?.addEventListener('click', (e) => {
     if (e.target.id === 'hermes-modal') hideConfirmationModal();
 });
+
 
 // ==========================================================================
 // Sessions Tab (Active / Archived / Delete with Alerts)
@@ -935,6 +1303,22 @@ function renderSettings() {
     if (cwdLabel && appConfig) {
         cwdLabel.textContent = appConfig.cwd || 'Workspace Root';
     }
+
+    const statusDot = document.getElementById('settings-status-dot');
+    const statusText = document.getElementById('settings-status-text');
+    if (statusDot && statusText) {
+        if (connected) {
+            statusDot.style.background = '#22c55e';
+            statusDot.style.boxShadow = '0 0 10px rgba(34, 197, 94, 0.6)';
+            statusText.textContent = 'متصل به ایجنت لوکال (CLI Connected)';
+            statusText.style.color = '#22c55e';
+        } else {
+            statusDot.style.background = '#ef4444';
+            statusDot.style.boxShadow = '0 0 10px rgba(239, 68, 68, 0.6)';
+            statusText.textContent = 'ارتباط محلی قطع است (CLI Disconnected)';
+            statusText.style.color = '#ef4444';
+        }
+    }
 }
 
 document.getElementById('setting-auto-approve')?.addEventListener('change', () => {
@@ -949,6 +1333,7 @@ document.getElementById('btn-reconnect-hermes')?.addEventListener('click', () =>
 
 document.getElementById('btn-run-setup-terminal')?.addEventListener('click', () => {
     vscode.postMessage({ type: 'runSetup' });
+    showToast('⚙️ راه‌اندازی در ترمینال باز شد', 'info');
 });
 
 // ==========================================================================

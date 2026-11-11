@@ -492,65 +492,148 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
     <div id="app-container">
-        <!-- Top Unified Dashboard Navbar -->
-        <header id="dashboard-navbar">
+        <!-- Top HUD Capsule Navbar (Figma Style) -->
+        <header id="dashboard-navbar" class="hud-navbar">
             <div class="brand">
                 <span class="brand-logo">⚚</span>
-                <span class="brand-title">Hermes</span>
+                <div class="brand-titles">
+                    <span class="brand-title">HERMES</span>
+                    <span class="brand-subtitle">LOCAL AGENT</span>
+                </div>
+            </div>
+            <div class="hud-status-pill" id="hud-status-pill" title="وضعیت اتصال هرمس / Hermes CLI Status">
+                <span class="pulse-dot"></span>
+                <span class="status-label" id="hud-status-text">Local CLI</span>
             </div>
             <nav class="nav-tabs">
-                <button class="nav-tab active" data-tab="chat" title="Chat">
+                <button class="nav-tab active" data-tab="chat" title="گفتگو / Chat">
                     <span class="nav-icon">💬</span>
-                    <span class="nav-text">Chat</span>
+                    <span class="nav-text">چت</span>
                 </button>
-                <button class="nav-tab" data-tab="sessions" title="Sessions">
+                <button class="nav-tab" data-tab="sessions" title="تاریخچه سشن‌ها / Sessions">
                     <span class="nav-icon">🕒</span>
-                    <span class="nav-text">Sessions</span>
+                    <span class="nav-text">سشن‌ها</span>
                     <span class="nav-badge" id="nav-sessions-count">0</span>
                 </button>
-                <button class="nav-tab" data-tab="skills" title="Skills">
+                <button class="nav-tab" data-tab="skills" title="مهارت‌ها / Skills">
                     <span class="nav-icon">⚡</span>
-                    <span class="nav-text">Skills</span>
+                    <span class="nav-text">مهارت‌ها</span>
                     <span class="nav-badge" id="nav-skills-count">0</span>
                 </button>
-                <button class="nav-tab" data-tab="models" title="Models & Operators">
+                <button class="nav-tab" data-tab="models" title="مدل‌ها و اپراتورها / Models & Operators">
                     <span class="nav-icon">🤖</span>
-                    <span class="nav-text">Models</span>
+                    <span class="nav-text">مدل‌ها</span>
                 </button>
-                <button class="nav-tab" data-tab="settings" title="Settings">
+                <button class="nav-tab" data-tab="settings" title="تنظیمات هرمس / Settings">
                     <span class="nav-icon">⚙️</span>
-                    <span class="nav-text">Settings</span>
+                    <span class="nav-text">تنظیمات</span>
                 </button>
             </nav>
         </header>
 
-        <!-- Tab 1: Chat Panel -->
+        <!-- Tab 1: Chat Panel (Figma Design) -->
         <main id="tab-chat" class="tab-panel active">
-            <div id="chat-header">
-                <div class="status-indicator">
-                    <span class="pulse-dot"></span>
-                    <span class="status-label">Connecting...</span>
-                </div>
-                <div class="chat-meta">
-                    <span class="meta-badge model-badge" id="header-model-badge" title="Active Model">Model</span>
-                    <span class="meta-badge session-badge" id="header-session-badge" title="Click to copy Session ID">Session</span>
-                    <span class="meta-badge token-badge" id="header-token-badge">0 tokens</span>
+            <!-- Disconnected Alert Banner (Image 4) -->
+            <div id="cli-disconnected-banner" class="cli-alert-banner" style="display: none;">
+                <div class="alert-content">
+                    <div class="alert-info">
+                        <h4 class="alert-title">اتصال محلی برقرار نیست</h4>
+                        <p class="alert-desc">برای شروع، راه‌اندازی هرمس را اجرا کنید.</p>
+                    </div>
+                    <div class="alert-actions">
+                        <code class="alert-code">hermes setup</code>
+                        <button id="btn-banner-run-setup" class="btn-banner-action">اجرای راه‌اندازی</button>
+                    </div>
                 </div>
             </div>
 
+            <!-- Messages Container (Hero Astrolabe or Chat Timeline) -->
             <div id="messages-container" class="messages-container"></div>
 
-            <div id="composer-area" class="composer-area">
-                <div class="composer-toolbar">
-                    <button id="btn-new-session" title="New Session">＋ New Chat</button>
-                    <button id="btn-switch-model-quick" title="Change Model / Operator">🤖 Switch Model</button>
-                    <button id="btn-stop-turn" title="Stop Generation">⏹ Stop</button>
-                    <button id="btn-clear-chat" title="Clear History">🗑 Clear</button>
+            <!-- Command Mode Quick Palette (Image 4, triggers on /) -->
+            <div id="command-mode-popup" class="command-palette-popup" style="display: none;">
+                <div class="popup-header">
+                    <span class="popup-title">دستورات سریع</span>
+                    <span class="popup-close-hint">بستن ESC</span>
                 </div>
-                <div class="composer-input-row">
-                    <textarea id="prompt-input" rows="1" placeholder="Ask Hermes anything... (Enter to send, Shift+Enter for newline)"></textarea>
-                    <button id="btn-send-prompt" title="Send (Enter)">Send</button>
+                <div class="popup-items" id="popup-command-items">
+                    <div class="popup-item active" data-cmd="/new">
+                        <span class="cmd-name">/new</span>
+                        <span class="cmd-desc">شروع گفت‌وگوی تازه</span>
+                        <span class="cmd-key">↵</span>
+                    </div>
+                    <div class="popup-item" data-cmd="/model">
+                        <span class="cmd-name">/model</span>
+                        <span class="cmd-desc">انتخاب مدل هوش مصنوعی</span>
+                        <span class="cmd-num">02</span>
+                    </div>
+                    <div class="popup-item" data-cmd="/skills">
+                        <span class="cmd-name">/skills</span>
+                        <span class="cmd-desc">مهارت‌های یادگرفته‌شده</span>
+                        <span class="cmd-num">03</span>
+                    </div>
+                    <div class="popup-item" data-cmd="/clear">
+                        <span class="cmd-name">/clear</span>
+                        <span class="cmd-desc">پاک‌کردن گفت‌وگو</span>
+                        <span class="cmd-num">04</span>
+                    </div>
+                    <div class="popup-item" data-cmd="/setup">
+                        <span class="cmd-name">/setup</span>
+                        <span class="cmd-desc">راه‌اندازی اتصال محلی</span>
+                        <span class="cmd-num">05</span>
+                    </div>
                 </div>
+            </div>
+
+            <!-- In-Capsule Quick Model Dropdown Popover -->
+            <div id="model-quick-popover" class="model-quick-popover" style="display: none;">
+                <div class="popover-header">
+                    <span>مدل‌های در دسترس</span>
+                    <button type="button" class="popover-close-btn" id="btn-close-model-popover">✕</button>
+                </div>
+                <div class="popover-model-list" id="popover-model-list"></div>
+                <div class="popover-footer">
+                    <button type="button" id="btn-open-full-models-tab" class="btn-popover-more">⚙️ تنظیمات کامل پرووایدر و API Key</button>
+                </div>
+            </div>
+
+            <!-- The Integrated Command Capsule (Image 2, 3, 4) -->
+            <div id="command-capsule-wrapper" class="command-capsule-wrapper">
+                <div class="command-capsule" id="command-capsule">
+                    <div class="capsule-input-row">
+                        <button type="button" class="capsule-slash-tag" id="btn-trigger-slash" title="دستورات سریع (کلید /)">/</button>
+                        <textarea id="prompt-input" rows="1" placeholder="از هرمس بخواهید؛ بقیه‌اش با من."></textarea>
+                        <span class="capsule-hint" id="capsule-hint">دستور سریع با /</span>
+                    </div>
+                    <div class="capsule-controls-row">
+                        <div class="capsule-left-tools">
+                            <button type="button" class="capsule-model-pill" id="capsule-model-pill" title="تغییر سریع مدل هوش مصنوعی">
+                                <span class="model-pill-icon">⚙️</span>
+                                <span class="model-pill-name" id="capsule-model-name">nemotron-3-ultra</span>
+                                <span class="model-pill-arrow">▾</span>
+                            </button>
+                            <button type="button" class="capsule-tool-btn" id="btn-capsule-new" title="شروع گفتگوی جدید (New Chat)">＋</button>
+                            <button type="button" class="capsule-tool-btn" id="btn-capsule-clear" title="پاک‌کردن سابقه گفتگو (Clear)">🧹</button>
+                        </div>
+                        <div class="capsule-right-tools">
+                            <span class="capsule-timer" id="capsule-timer" style="display: none;">00:00</span>
+                            <span class="capsule-enter-hint">Enter ↵</span>
+                            <button type="button" class="capsule-action-btn" id="btn-capsule-action" title="ارسال پیام (Enter)">
+                                <span class="action-icon" id="capsule-action-icon">↑</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Global Bottom Status Bar -->
+                <footer class="capsule-footer-bar">
+                    <span class="footer-left" id="footer-left-status">HERMES / v0.8</span>
+                    <span class="footer-center">محلی. مستقل. تحت کنترل شما.</span>
+                    <span class="footer-right" id="footer-right-status">
+                        <span class="footer-dot"></span>
+                        <span id="footer-right-text">CLI connected</span>
+                    </span>
+                </footer>
             </div>
         </main>
 
@@ -668,29 +751,97 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         <!-- Tab 5: Settings Panel -->
         <main id="tab-settings" class="tab-panel">
-            <div class="panel-header">
-                <h3>Hermes Settings</h3>
+            <div class="panel-header settings-header">
+                <div class="settings-title-group">
+                    <span class="settings-badge-icon">⚚</span>
+                    <div>
+                        <h3>تنظیمات سیستم و ارتباط با هرمس</h3>
+                        <p class="panel-subtitle">مدیریت اتصال محلی Agent، بازیابی سرویس ACP، مجوزها و پوشه کاری</p>
+                    </div>
+                </div>
             </div>
-            <div class="settings-card">
+
+            <!-- Card 1: Connection & Recovery Controls (requested by user) -->
+            <div class="settings-card obsidian-card">
+                <div class="card-section-header">
+                    <span class="section-icon">📡</span>
+                    <div class="section-title-wrap">
+                        <span class="section-title">وضعیت اتصال و ابزارهای بازیابی (Recovery)</span>
+                        <span class="section-desc">در صورت قطع ارتباط افزونه با Agent یا عدم پاسخگویی، از این ابزارها برای بازیابی استفاده کنید.</span>
+                    </div>
+                </div>
+                
+                <div class="connection-status-row">
+                    <div class="conn-indicator-wrap">
+                        <span class="pulse-dot" id="settings-status-dot"></span>
+                        <span class="conn-status-text" id="settings-status-text">بررسی وضعیت اتصال...</span>
+                    </div>
+                    <span class="conn-mode-badge">پروتکل ACP لوکال</span>
+                </div>
+
+                <div class="setting-actions-grid">
+                    <button type="button" id="btn-reconnect-hermes" class="btn-setting-action btn-reconnect" title="اتصال مجدد ارتباط کلاینت با سرور لوکال هرمس">
+                        <span class="btn-icon">↻</span>
+                        <div class="btn-text-wrap">
+                            <span class="btn-main-label">اتصال مجدد / Reconnect ACP</span>
+                            <span class="btn-sub-label">برقراری دوباره پروتکل ارتباطی با پردازش هرمس</span>
+                        </div>
+                    </button>
+                    <button type="button" id="btn-run-setup-terminal" class="btn-setting-action btn-setup" title="اجرای مستقیم دستور هرمس ستاپ در ترمینال وی‌اس‌کد">
+                        <span class="btn-icon">⚙️</span>
+                        <div class="btn-text-wrap">
+                            <span class="btn-main-label">اجرای 'hermes setup' در ترمینال</span>
+                            <span class="btn-sub-label">پیکربندی کلیدها و مدل‌های هسته هرمس در ترمینال</span>
+                        </div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Card 2: Permissions & Safety -->
+            <div class="settings-card obsidian-card">
+                <div class="card-section-header">
+                    <span class="section-icon">🛡️</span>
+                    <div class="section-title-wrap">
+                        <span class="section-title">مجوزها و امنیت (Permissions & Safety)</span>
+                        <span class="section-desc">کنترل نحوه تعامل ایجنت هرمس با فایل‌ها و دستورات ترمینال سیستم</span>
+                    </div>
+                </div>
+
                 <div class="setting-row">
                     <div class="setting-info">
-                        <span class="setting-name">Auto-Approve Tool Permissions</span>
-                        <span class="setting-desc">Automatically approve file edits, commands, and browser tools.</span>
+                        <span class="setting-name">تأیید خودکار ابزارها (Auto-Approve Tool Permissions)</span>
+                        <span class="setting-desc">اجرای دستورات، خواندن و ذخیره فایل‌ها بدون درخواست تأیید دستی برای هر مرحله.</span>
                     </div>
                     <label class="switch">
                         <input type="checkbox" id="setting-auto-approve">
                         <span class="slider round"></span>
                     </label>
                 </div>
-                <div class="setting-row">
-                    <div class="setting-info">
-                        <span class="setting-name">Working Directory (CWD)</span>
-                        <span class="setting-desc" id="setting-cwd-label">Workspace Root</span>
+            </div>
+
+            <!-- Card 3: Workspace & Environment -->
+            <div class="settings-card obsidian-card">
+                <div class="card-section-header">
+                    <span class="section-icon">📁</span>
+                    <div class="section-title-wrap">
+                        <span class="section-title">محیط کاری و مسیرها (Workspace & Environment)</span>
+                        <span class="section-desc">پوشه کاری فعال و فایل‌های ذخیره‌سازی محلی</span>
                     </div>
                 </div>
-                <div class="setting-actions">
-                    <button id="btn-reconnect-hermes" class="btn-secondary">↻ Reconnect Hermes ACP</button>
-                    <button id="btn-run-setup-terminal" class="btn-secondary">⚙ Run 'hermes setup' in Terminal</button>
+
+                <div class="env-info-list">
+                    <div class="env-info-item">
+                        <span class="env-info-key">Working Directory (CWD):</span>
+                        <code class="env-info-val" id="setting-cwd-label">Workspace Root</code>
+                    </div>
+                    <div class="env-info-item">
+                        <span class="env-info-key">Hermes Config File:</span>
+                        <code class="env-info-val">%LOCALAPPDATA%\hermes\config.yaml</code>
+                    </div>
+                    <div class="env-info-item">
+                        <span class="env-info-key">Sessions Database:</span>
+                        <code class="env-info-val">%LOCALAPPDATA%\hermes\state.db</code>
+                    </div>
                 </div>
             </div>
         </main>

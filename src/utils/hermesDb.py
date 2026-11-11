@@ -276,6 +276,7 @@ def extract_description(skill_file):
 
 def bootstrap_hermes_cli(h_home):
     """Attempt to import hermes CLI and bootstrap its environment."""
+    os.environ["HERMES_HOME"] = str(h_home)
     candidates = [
         h_home / "hermes-agent",
         h_home.parent / "hermes-agent",
@@ -410,6 +411,15 @@ def get_model_config(hermes_home_str=None):
         except Exception:
             pass
 
+    disk_cached_providers = {}
+    provider_cache_file = h_home / "provider_models_cache.json"
+    if provider_cache_file.exists():
+        try:
+            with open(provider_cache_file, "r", encoding="utf-8", errors="ignore") as f:
+                disk_cached_providers = json.load(f)
+        except Exception:
+            pass
+
     has_hermes_engine = bootstrap_hermes_cli(h_home)
     canonical_list = []
     provider_registry = {}
@@ -470,9 +480,11 @@ def get_model_config(hermes_home_str=None):
             base_url = (reg.inference_base_url if reg and hasattr(reg, "inference_base_url") else "") or ""
 
             m_list = []
-            if pid == "openrouter" and models_mod:
+            cached_models = disk_cached_providers.get(pid, {}).get("models", []) if isinstance(disk_cached_providers.get(pid), dict) else []
+
+            if pid == "openrouter":
                 try:
-                    or_ids = models_mod.provider_model_ids("openrouter")
+                    or_ids = cached_models or (models_mod.provider_model_ids("openrouter") if models_mod else [])
                     or_pricing = pricing_mod.get_pricing_for_provider("openrouter") if pricing_mod else {}
                     for mid in or_ids:
                         pr = or_pricing.get(mid)
@@ -482,7 +494,7 @@ def get_model_config(hermes_home_str=None):
                                 is_free = float(pr.get("prompt", 1)) == 0 and float(pr.get("completion", 1)) == 0
                             except Exception:
                                 pass
-                        if not is_free and (":free" in mid.lower() or (hasattr(models_mod, "_openrouter_model_is_free") and models_mod._openrouter_model_is_free(mid))):
+                        if not is_free and (":free" in mid.lower() or (models_mod and hasattr(models_mod, "_openrouter_model_is_free") and models_mod._openrouter_model_is_free(mid))):
                             is_free = True
 
                         if is_free:
@@ -507,7 +519,7 @@ def get_model_config(hermes_home_str=None):
 
             elif pid == "gemini":
                 try:
-                    g_ids = list(models_mod.provider_model_ids("gemini")) if models_mod else []
+                    g_ids = list(cached_models) if cached_models else (list(models_mod.provider_model_ids("gemini")) if models_mod else [])
                     for extra in ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemma-4-31b-it", "gemma-4-26b-a4b-it"]:
                         if extra not in g_ids:
                             g_ids.append(extra)
@@ -534,8 +546,28 @@ def get_model_config(hermes_home_str=None):
                 except Exception as e:
                     sys.stderr.write(f"Error fetching gemini models: {e}\n")
 
+            elif pid in {"copilot", "copilot-acp"} and (cached_models or (models_mod and pid == "copilot-acp")):
+                try:
+                    c_ids = cached_models or (list(models_mod.provider_model_ids("copilot-acp")) if models_mod else [])
+                    for mid in c_ids:
+                        tag = "Fast" if "mini" in mid else ("Flagship" if any(k in mid for k in ["5.4", "opus", "sonnet"]) else "Catalog")
+                        m_list.append({
+                            "id": mid,
+                            "name": clean_model_name(mid),
+                            "tag": tag
+                        })
+                except Exception:
+                    pass
+
             else:
-                static_ms = static_provider_models.get(pid, [])
+                static_ms = cached_models or static_provider_models.get(pid, [])
+                if not static_ms and models_mod:
+                    try:
+                        curated = models_mod.curated_models_for_provider(pid)
+                        if curated:
+                            static_ms = [c[0] if isinstance(c, tuple) else c for c in curated]
+                    except Exception:
+                        pass
                 if not static_ms and pid in {"anthropic", "openai-api", "deepseek", "nvidia", "alibaba"} and models_mod:
                     try:
                         static_ms = models_mod.provider_model_ids(pid)
