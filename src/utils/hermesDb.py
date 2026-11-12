@@ -67,11 +67,10 @@ def get_db(db_path_str=None):
     except Exception:
         return None
 
-def list_sessions(db_path_str=None, limit=100):
+def query_sessions(db_path_str=None, limit=100):
     conn = get_db(db_path_str)
     if not conn:
-        print(json.dumps([]))
-        return
+        return []
     try:
         cursor = conn.cursor()
         rows = cursor.execute("""
@@ -97,31 +96,35 @@ def list_sessions(db_path_str=None, limit=100):
                 "lastActive": r["last_active"] or 0,
                 "archived": bool(r["archived"])
             })
-        print(json.dumps(result))
+        return result
     except Exception as e:
         sys.stderr.write(f"Error listing sessions: {e}\n")
-        print(json.dumps([]))
+        return []
 
-def archive_session(db_path_str, session_id, archive=True):
+def list_sessions(db_path_str=None, limit=100):
+    print(json.dumps(query_sessions(db_path_str, limit)))
+
+def do_archive_session(db_path_str, session_id, archive=True):
     conn = get_db(db_path_str)
     if not conn:
-        print(json.dumps({"success": False, "error": "Database not accessible"}))
-        return
+        return {"success": False, "error": "Database not accessible"}
     try:
         val = 1 if archive else 0
         cursor = conn.cursor()
         cursor.execute("UPDATE sessions SET archived = ? WHERE id = ?", (val, session_id))
         conn.commit()
-        print(json.dumps({"success": True, "sessionId": session_id, "archived": bool(val)}))
+        return {"success": True, "sessionId": session_id, "archived": bool(val)}
     except Exception as e:
         sys.stderr.write(f"Error archiving session: {e}\n")
-        print(json.dumps({"success": False, "error": str(e)}))
+        return {"success": False, "error": str(e)}
 
-def delete_session(db_path_str, session_id):
+def archive_session(db_path_str, session_id, archive=True):
+    print(json.dumps(do_archive_session(db_path_str, session_id, archive)))
+
+def do_delete_session(db_path_str, session_id):
     conn = get_db(db_path_str)
     if not conn:
-        print(json.dumps({"success": False, "error": "Database not accessible"}))
-        return
+        return {"success": False, "error": "Database not accessible"}
     try:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
@@ -131,20 +134,22 @@ def delete_session(db_path_str, session_id):
             pass
         cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         conn.commit()
-        print(json.dumps({"success": True, "sessionId": session_id, "deleted": True}))
+        return {"success": True, "sessionId": session_id, "deleted": True}
     except Exception as e:
         sys.stderr.write(f"Error deleting session: {e}\n")
-        print(json.dumps({"success": False, "error": str(e)}))
+        return {"success": False, "error": str(e)}
 
-def get_messages(db_path_str, session_id):
+def delete_session(db_path_str, session_id):
+    print(json.dumps(do_delete_session(db_path_str, session_id)))
+
+def query_messages(db_path_str, session_id):
     conn = get_db(db_path_str)
     if not conn:
-        print(json.dumps([]))
-        return
+        return []
     try:
         cursor = conn.cursor()
         rows = cursor.execute("""
-            SELECT id, role, content, tool_calls, tool_name, reasoning, timestamp
+            SELECT id, role, content, tool_calls, tool_name, reasoning, timestamp, COALESCE(display_kind, '') as display_kind
             FROM messages
             WHERE session_id = ?
             ORDER BY id ASC
@@ -189,19 +194,22 @@ def get_messages(db_path_str, session_id):
                 "content": r["content"] or "",
                 "thinking": r["reasoning"] or None,
                 "toolCalls": tc,
-                "timestamp": r["timestamp"] or ""
+                "timestamp": r["timestamp"] or "",
+                "displayKind": r["display_kind"] or ""
             })
-        print(json.dumps(result))
+        return result
     except Exception as e:
         sys.stderr.write(f"Error getting messages: {e}\n")
-        print(json.dumps([]))
+        return []
 
-def list_skills(hermes_home_str=None):
+def get_messages(db_path_str, session_id):
+    print(json.dumps(query_messages(db_path_str, session_id)))
+
+def query_skills(hermes_home_str=None):
     h_home = get_hermes_home(hermes_home_str)
     skills_dir = h_home / "skills"
     if not skills_dir.exists():
-        print(json.dumps([]))
-        return
+        return []
 
     curated_skills = set()
     ledger_file = skills_dir / ".curator_ledger.jsonl"
@@ -243,10 +251,13 @@ def list_skills(hermes_home_str=None):
                                 "isLearned": is_learned
                             })
         skills.sort(key=lambda s: (0 if s["isLearned"] else 1, s["category"], s["name"]))
-        print(json.dumps(skills))
+        return skills
     except Exception as e:
         sys.stderr.write(f"Error listing skills: {e}\n")
-        print(json.dumps([]))
+        return []
+
+def list_skills(hermes_home_str=None):
+    print(json.dumps(query_skills(hermes_home_str)))
 
 def extract_description(skill_file):
     try:
@@ -371,7 +382,7 @@ FALLBACK_PROVIDERS = [
     {"id": "groq", "name": "Groq (Ultra-Fast Inference)", "envVar": "GROQ_API_KEY", "baseUrl": "https://api.groq.com/openai/v1"}
 ]
 
-def get_model_config(hermes_home_str=None):
+def query_model_config(hermes_home_str=None):
     h_home = get_hermes_home(hermes_home_str)
     cfg_file = h_home / "config.yaml"
     env_file = h_home / ".env"
@@ -635,9 +646,12 @@ def get_model_config(hermes_home_str=None):
         },
         "providers": providers_out
     }
-    print(json.dumps(out))
+    return out
 
-def save_model_config(hermes_home_str, provider, model, api_key=None, base_url=None):
+def get_model_config(hermes_home_str=None):
+    print(json.dumps(query_model_config(hermes_home_str)))
+
+def do_save_model_config(hermes_home_str, provider, model, api_key=None, base_url=None):
     h_home = get_hermes_home(hermes_home_str)
     cfg_file = h_home / "config.yaml"
     env_file = h_home / ".env"
@@ -708,15 +722,75 @@ def save_model_config(hermes_home_str, provider, model, api_key=None, base_url=N
                 with open(env_file, "w", encoding="utf-8") as f:
                     f.write(env_content)
 
-        print(json.dumps({"success": True, "provider": provider, "model": model}))
+        return {"success": True, "provider": provider, "model": model}
     except Exception as e:
         sys.stderr.write(f"Error saving model config: {e}\n")
-        print(json.dumps({"success": False, "error": str(e)}))
+        return {"success": False, "error": str(e)}
 
+def save_model_config(hermes_home_str, provider, model, api_key=None, base_url=None):
+    print(json.dumps(do_save_model_config(hermes_home_str, provider, model, api_key, base_url)))
+
+def run_daemon():
+    """Persistent warm IPC daemon for fast JSON requests via stdin/stdout without cold starts."""
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        req_id = None
+        try:
+            req = json.loads(line)
+            req_id = req.get("id")
+            action = req.get("action")
+            res_data = None
+
+            if action == "list":
+                db_p = req.get("dbPath") or ""
+                limit = int(req.get("limit") or 50)
+                res_data = query_sessions(db_p, limit)
+            elif action == "messages":
+                db_p = req.get("dbPath") or ""
+                sid = req.get("sessionId") or ""
+                res_data = query_messages(db_p, sid)
+            elif action == "archive":
+                db_p = req.get("dbPath") or ""
+                sid = req.get("sessionId") or ""
+                arch = bool(req.get("archive", True))
+                res_data = do_archive_session(db_p, sid, arch)
+            elif action == "delete":
+                db_p = req.get("dbPath") or ""
+                sid = req.get("sessionId") or ""
+                res_data = do_delete_session(db_p, sid)
+            elif action == "skills":
+                h_home = req.get("hermesHome") or ""
+                res_data = query_skills(h_home)
+            elif action == "models":
+                h_home = req.get("hermesHome") or ""
+                res_data = query_model_config(h_home)
+            elif action == "save_model":
+                h_home = req.get("hermesHome") or ""
+                prov = req.get("provider") or "openrouter"
+                mdl = req.get("model") or ""
+                k = req.get("apiKey")
+                b_url = req.get("baseUrl")
+                res_data = do_save_model_config(h_home, prov, mdl, k, b_url)
+            elif action == "ping":
+                res_data = "pong"
+            else:
+                raise ValueError(f"Unknown daemon action: {action}")
+
+            out = {"id": req_id, "success": True, "data": res_data}
+            sys.stdout.write(json.dumps(out) + "\n")
+            sys.stdout.flush()
+        except Exception as e:
+            out = {"id": req_id, "success": False, "error": str(e)}
+            sys.stdout.write(json.dumps(out) + "\n")
+            sys.stdout.flush()
 
 if __name__ == "__main__":
     action = sys.argv[1] if len(sys.argv) > 1 else "list"
-    if action == "list":
+    if action in {"--daemon", "daemon"}:
+        run_daemon()
+    elif action == "list":
         db_path = sys.argv[2] if len(sys.argv) > 2 else ""
         limit = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].isdigit() else 50
         list_sessions(db_path, limit)

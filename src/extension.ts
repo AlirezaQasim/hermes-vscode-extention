@@ -14,7 +14,7 @@ import { FileSystemHandler } from './handlers/fileSystemHandler';
 import { TerminalHandler } from './handlers/terminalHandler';
 import { Logger } from './utils/logger';
 import { getHermesSafeCwd } from './utils/hermesPaths';
-import { HermesDatabase } from './config/hermesConfig';
+import { ConfigService, SessionService, SkillService } from './services';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -33,6 +33,9 @@ export interface ExtensionContext {
     permissionHandler: PermissionHandler;
     fileSystemHandler: FileSystemHandler;
     terminalHandler: TerminalHandler;
+    configService: ConfigService;
+    sessionService: SessionService;
+    skillService: SkillService;
     logger: Logger;
     isConnected: boolean;
     currentSessionId: string | null;
@@ -60,7 +63,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const fileSystemHandler = new FileSystemHandler(logger);
     const terminalHandler = new TerminalHandler(logger);
 
-    const chatProvider = new ChatViewProvider(context, logger, () => extensionContext);
+    const configService = new ConfigService(logger);
+    const sessionService = new SessionService(logger);
+    const skillService = new SkillService(logger);
+
+    const chatProvider = new ChatViewProvider(
+        context,
+        logger,
+        () => extensionContext,
+        configService,
+        sessionService,
+        skillService
+    );
     const sessionsProvider = new SessionsViewProvider(context, logger);
     const skillsProvider = new SkillsViewProvider(context, logger);
     const toolsProvider = new ToolsViewProvider(context, logger);
@@ -91,6 +105,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         permissionHandler,
         fileSystemHandler,
         terminalHandler,
+        configService,
+        sessionService,
+        skillService,
         logger,
         isConnected: false,
         currentSessionId: null,
@@ -187,6 +204,8 @@ export async function deactivate(): Promise<void> {
     if (extensionContext?.client) {
         await disconnectFromHermes();
     }
+    extensionContext?.configService.dispose();
+    extensionContext?.sessionService.dispose();
     extensionContext?.logger.info('Hermes Agent extension deactivated');
 }
 
@@ -197,6 +216,7 @@ async function connectToHermes(): Promise<void> {
     try {
         ctx.logger.info('Connecting to Hermes ACP server...');
         ctx.statusBar.setConnecting();
+        ctx.chatProvider.setConnecting();
 
         const acpCommand = ctx.config.get('acpCommand', 'hermes');
         const acpArgs = ctx.config.get('acpArgs', ['acp']);
@@ -264,6 +284,7 @@ async function connectToHermes(): Promise<void> {
     } catch (error) {
         ctx.logger.error('Failed to connect to Hermes', error);
         ctx.statusBar.setError(String(error));
+        ctx.chatProvider.setConnected(false);
         vscode.window.showErrorMessage(`Failed to connect to Hermes: ${error}`);
     }
 }
@@ -323,9 +344,8 @@ async function loadSession(sessionId: string): Promise<void> {
         const sessionMeta = sessions.find(s => s.sessionId === sessionId);
         const sessionTitle = sessionMeta?.title || sessionId.slice(0, 8);
 
-        // Fetch past messages from DB directly for instant rendering
-        const hermesDb = new HermesDatabase(ctx.logger);
-        const dbMessages = await hermesDb.getSessionMessages(sessionId);
+        // Fetch past messages from DB directly for instant rendering via warm SessionService
+        const dbMessages = await ctx.sessionService.getSessionMessages(sessionId);
         ctx.logger.info(`Loaded ${dbMessages.length} messages from DB for session ${sessionId}`);
 
         // Update chat provider with these messages

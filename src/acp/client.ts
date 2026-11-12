@@ -158,8 +158,8 @@ export class HermesACPClient extends EventEmitter {
                     }
                 });
 
-                // Send initialize request. Python ACP adapter may take 1-2 seconds to boot plugins.
-                setTimeout(async () => {
+                // Send initialize request immediately over the established stdio stream
+                const doInitialize = async () => {
                     try {
                         const initResponse = await this.sendRequest('initialize', {
                             protocolVersion: 1,
@@ -186,7 +186,10 @@ export class HermesACPClient extends EventEmitter {
                         this.cleanup();
                         reject(error);
                     }
-                }, 1500);
+                };
+
+                // Queue microtask so process event handlers are ready
+                setImmediate(doInitialize);
 
             } catch (error) {
                 this.logger.error('Failed to spawn ACP process', error);
