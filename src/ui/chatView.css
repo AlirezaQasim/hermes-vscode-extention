@@ -4,11 +4,11 @@
    ========================================================================== */
 
 :root {
-    --hermes-bg: #0b0f17;
-    --hermes-surface: #121622;
-    --hermes-surface-elevated: #161c2c;
-    --hermes-surface-card: #141926;
-    --hermes-border: rgba(255, 255, 255, 0.08);
+    --hermes-bg: transparent;
+    --hermes-surface: rgba(255, 255, 255, 0.04);
+    --hermes-surface-elevated: rgba(255, 255, 255, 0.07);
+    --hermes-surface-card: rgba(255, 255, 255, 0.03);
+    --hermes-border: var(--vscode-widget-border, var(--vscode-sideBar-border, rgba(255, 255, 255, 0.09)));
     --hermes-border-hover: rgba(245, 185, 66, 0.45);
     --hermes-gold: #f5b942;
     --hermes-gold-bright: #ffd700;
@@ -16,16 +16,35 @@
     --hermes-emerald: #10b981;
     --hermes-purple: #a855f7;
     --hermes-crimson: #ef4444;
-    --hermes-text: #f0f6fc;
-    --hermes-text-muted: rgba(255, 255, 255, 0.55);
-    --hermes-text-dim: rgba(255, 255, 255, 0.35);
+    --hermes-text: var(--vscode-foreground, #f0f6fc);
+    --hermes-text-muted: var(--vscode-descriptionForeground, rgba(255, 255, 255, 0.55));
+    --hermes-text-dim: var(--vscode-disabledForeground, rgba(255, 255, 255, 0.35));
 
-    --primary-color: #007acc;
-    --primary-hover: #0062a3;
+    --primary-color: var(--vscode-button-background, #007acc);
+    --primary-hover: var(--vscode-button-hoverBackground, #0062a3);
     --gold-color: #f5b942;
     --success-color: #10b981;
     --error-color: #ef4444;
     --warning-color: #f59e0b;
+}
+
+/* Light Theme Support - Blends naturally with VS Code light themes */
+body.vscode-light {
+    --hermes-bg: transparent;
+    --hermes-surface: rgba(0, 0, 0, 0.03);
+    --hermes-surface-elevated: #ffffff;
+    --hermes-surface-card: rgba(0, 0, 0, 0.02);
+    --hermes-border: var(--vscode-widget-border, var(--vscode-sideBar-border, rgba(0, 0, 0, 0.12)));
+    --hermes-border-hover: rgba(217, 119, 6, 0.5);
+    --hermes-gold: #b45309;
+    --hermes-gold-bright: #92400e;
+    --hermes-gold-glow: rgba(180, 83, 9, 0.18);
+    --hermes-emerald: #059669;
+    --hermes-purple: #7c3aed;
+    --hermes-crimson: #dc2626;
+    --hermes-text: var(--vscode-foreground, #1e293b);
+    --hermes-text-muted: var(--vscode-descriptionForeground, #64748b);
+    --hermes-text-dim: var(--vscode-disabledForeground, #94a3b8);
 }
 
 * {
@@ -40,13 +59,14 @@ html, body {
     margin: 0;
     padding: 0;
     overflow: hidden;
+    background: transparent !important;
 }
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     font-size: var(--vscode-font-size, 12px);
     color: var(--hermes-text);
-    background-color: var(--hermes-bg);
+    background: transparent !important;
     height: 100vh;
     display: flex;
     flex-direction: column;
@@ -62,7 +82,7 @@ body {
     flex: 1 1 0%;
     min-height: 0;
     overflow: hidden;
-    background-color: var(--hermes-bg);
+    background: transparent !important;
     position: relative;
 }
 
@@ -76,15 +96,20 @@ body {
     align-items: center;
     padding: 7px 12px;
     margin: 8px 10px 4px 10px;
-    background: rgba(18, 22, 34, 0.94);
+    background: var(--vscode-editorWidget-background, rgba(18, 22, 34, 0.88));
     border: 1px solid var(--hermes-border);
     border-radius: 14px;
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
     flex-shrink: 0;
     user-select: none;
     z-index: 100;
+}
+
+body.vscode-light #dashboard-navbar.hud-navbar {
+    background: var(--vscode-editorWidget-background, rgba(255, 255, 255, 0.92));
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
 }
 
 .brand {
@@ -726,17 +751,22 @@ body {
 }
 
 .user-bubble-content {
-    background: rgba(24, 30, 42, 0.95);
+    background: var(--vscode-editorWidget-background, rgba(245, 185, 66, 0.08));
     border: 1px solid var(--hermes-border);
     border-radius: 14px 14px 4px 14px;
     padding: 9px 12px;
     font-size: 12.5px;
     line-height: 1.55;
-    color: #ffffff;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    color: var(--hermes-text);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     word-wrap: break-word;
     unicode-bidi: plaintext;
     text-align: start;
+}
+
+body.vscode-light .user-bubble-content {
+    background: var(--vscode-editorWidget-background, rgba(0, 0, 0, 0.04));
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
 }
 
 /* Assistant Message */
@@ -768,7 +798,7 @@ body {
 .assistant-name {
     font-size: 11.5px;
     font-weight: 700;
-    color: #ffffff;
+    color: var(--hermes-text);
 }
 
 .assistant-status-badge {
@@ -1102,7 +1132,7 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: rgba(0, 0, 0, 0.35);
+    background: var(--vscode-editorWidget-background, rgba(0, 0, 0, 0.2));
     padding: 4px 10px;
     font-size: 10px;
     font-family: monospace;
@@ -1111,8 +1141,8 @@ body {
 }
 
 .copy-button {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--hermes-surface);
+    border: 1px solid var(--hermes-border);
     color: var(--hermes-text);
     cursor: pointer;
     font-size: 10px;
@@ -1122,16 +1152,19 @@ body {
 }
 
 .copy-button:hover {
-    background: rgba(255, 255, 255, 0.14);
+    background: var(--hermes-surface-elevated);
+    border-color: var(--hermes-gold);
+    color: var(--hermes-gold);
 }
 
 pre {
-    background-color: #0d1117;
+    background-color: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.2));
+    color: var(--vscode-editor-foreground, var(--hermes-text));
     padding: 8px 10px;
     overflow-x: auto;
     margin: 0;
     font-size: 11px;
-    font-family: monospace;
+    font-family: var(--vscode-editor-font-family, monospace);
 }
 
 /* ==========================================================================
@@ -1142,7 +1175,7 @@ pre {
     padding: 2px 8px 3px 8px;
     flex-shrink: 0;
     margin-top: auto;
-    background: var(--hermes-bg);
+    background: transparent !important;
     z-index: 90;
     display: flex;
     flex-direction: column;
@@ -1150,21 +1183,27 @@ pre {
 }
 
 .command-capsule {
-    background: rgba(18, 22, 34, 0.96);
-    border: 1px solid var(--hermes-border);
+    background: var(--vscode-input-background, rgba(18, 22, 34, 0.92));
+    border: 1px solid var(--vscode-input-border, var(--hermes-border));
     border-radius: 14px;
     padding: 6px 10px 6px 10px;
     display: flex;
     flex-direction: column;
     gap: 4px;
-    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.15);
     transition: border-color 0.2s, box-shadow 0.2s;
     position: relative;
 }
 
+body.vscode-light .command-capsule {
+    background: var(--vscode-input-background, #ffffff);
+    border-color: var(--vscode-input-border, rgba(0, 0, 0, 0.15));
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+}
+
 .command-capsule.focused, .command-capsule.command-mode {
-    border-color: rgba(245, 185, 66, 0.6);
-    box-shadow: 0 0 20px rgba(245, 185, 66, 0.2);
+    border-color: var(--hermes-border-hover);
+    box-shadow: 0 0 20px var(--hermes-gold-glow);
 }
 
 .capsule-input-row {
@@ -1175,8 +1214,8 @@ pre {
 }
 
 .capsule-slash-tag {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--hermes-surface);
+    border: 1px solid var(--hermes-border);
     border-radius: 6px;
     width: 22px;
     height: 22px;
@@ -1201,7 +1240,7 @@ pre {
     background: transparent;
     border: none;
     outline: none;
-    color: #ffffff;
+    color: var(--vscode-input-foreground, var(--hermes-text));
     font-size: 12.5px;
     resize: none;
     min-height: 28px;
@@ -1590,9 +1629,9 @@ pre {
 }
 
 .search-input {
-    background: rgba(14, 18, 28, 0.9);
-    color: var(--hermes-text);
-    border: 1px solid var(--hermes-border);
+    background: var(--vscode-input-background, rgba(255, 255, 255, 0.04));
+    color: var(--vscode-input-foreground, var(--hermes-text));
+    border: 1px solid var(--vscode-input-border, var(--hermes-border));
     border-radius: 20px;
     padding: 7px 14px;
     font-size: 11.5px;
@@ -1602,8 +1641,8 @@ pre {
 }
 
 .search-input:focus {
-    border-color: rgba(245, 185, 66, 0.6);
-    box-shadow: 0 0 10px rgba(245, 185, 66, 0.2);
+    border-color: var(--hermes-border-hover);
+    box-shadow: 0 0 10px var(--hermes-gold-glow);
 }
 
 .cards-list {
@@ -1613,27 +1652,34 @@ pre {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    background: transparent !important;
 }
 
 .session-card, .skill-card {
     border: 1px solid var(--hermes-border);
     border-radius: 10px;
     padding: 12px 14px;
-    background: rgba(18, 22, 34, 0.75);
+    background: var(--vscode-sideBarSectionHeader-background, rgba(255, 255, 255, 0.03));
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     display: flex;
     flex-direction: column;
     gap: 8px;
     transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+body.vscode-light .session-card,
+body.vscode-light .skill-card {
+    background: var(--vscode-editorWidget-background, #ffffff);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
 
 .session-card:hover, .skill-card:hover {
-    border-color: rgba(245, 185, 66, 0.35);
-    background: rgba(22, 28, 42, 0.85);
+    border-color: var(--hermes-border-hover);
+    background: var(--hermes-surface-elevated);
     transform: translateY(-1px);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 12px rgba(245, 185, 66, 0.1);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), 0 0 12px var(--hermes-gold-glow);
 }
 
 .session-card-header, .skill-card-header {
@@ -1709,15 +1755,20 @@ pre {
 }
 
 .active-model-card {
-    border: 1px solid rgba(245, 185, 66, 0.4);
-    background: linear-gradient(135deg, rgba(245, 185, 66, 0.1) 0%, rgba(18, 22, 34, 0.95) 100%);
+    border: 1px solid var(--hermes-border-hover);
+    background: linear-gradient(135deg, rgba(245, 185, 66, 0.12) 0%, var(--vscode-editorWidget-background, rgba(18, 22, 34, 0.75)) 100%);
     border-radius: 12px;
     padding: 14px 16px;
     display: flex;
     flex-direction: column;
     gap: 4px;
     margin-bottom: 18px !important;
-    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.1);
+}
+
+body.vscode-light .active-model-card {
+    background: linear-gradient(135deg, rgba(217, 119, 6, 0.08) 0%, #ffffff 100%);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
 }
 
 .card-tag {
@@ -1755,10 +1806,15 @@ pre {
     display: flex;
     flex-direction: column;
     gap: 14px;
-    background: rgba(18, 22, 34, 0.85);
+    background: var(--vscode-editorWidget-background, rgba(18, 22, 34, 0.75));
     margin-top: 0 !important;
     margin-bottom: 18px !important;
-    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.1);
+}
+
+body.vscode-light .config-form-card {
+    background: var(--vscode-editorWidget-background, #ffffff);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
 }
 
 .config-form-card h4 {
@@ -1938,21 +1994,26 @@ pre {
    ========================================================================== */
 
 .settings-card.obsidian-card {
-    border: 1px solid rgba(229, 184, 106, 0.16);
+    border: 1px solid var(--hermes-border);
     border-radius: 12px;
     padding: 16px;
-    background: linear-gradient(180deg, rgba(17, 23, 31, 0.75) 0%, rgba(11, 15, 20, 0.85) 100%);
+    background: var(--vscode-editorWidget-background, rgba(18, 22, 34, 0.75));
     backdrop-filter: blur(16px);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.1);
     display: flex;
     flex-direction: column;
     gap: 14px;
     transition: border-color 0.25s, box-shadow 0.25s;
 }
 
+body.vscode-light .settings-card.obsidian-card {
+    background: var(--vscode-editorWidget-background, #ffffff);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
 .settings-card.obsidian-card:hover {
-    border-color: rgba(229, 184, 106, 0.3);
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45), 0 0 15px rgba(229, 184, 106, 0.08);
+    border-color: var(--hermes-border-hover);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), 0 0 15px var(--hermes-gold-glow);
 }
 
 .card-section-header {
@@ -2710,14 +2771,15 @@ pre, code, .alert-code, .env-info-val, .pill-name, .model-tag, .cmd-prefix, .too
 
 .tool-output-content {
     padding: 8px 10px;
-    font-family: monospace;
+    font-family: var(--vscode-editor-font-family, monospace);
     font-size: 10.5px;
     max-height: 250px;
     overflow-y: auto;
     direction: ltr;
     text-align: left;
-    background: #0d1117;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.25));
+    color: var(--vscode-editor-foreground, var(--hermes-text));
+    border-top: 1px solid var(--hermes-border);
 }
 
 /* Failed Turn Alert Banner */
