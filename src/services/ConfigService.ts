@@ -104,6 +104,47 @@ const GOOGLE_HIDDEN_MODELS = new Set([
 ]);
 
 const CURATED_STATIC_MODELS: Record<string, string[]> = {
+    openrouter: [
+        'nvidia/nemotron-3-ultra-550b-a55b:free',
+        'nvidia/nemotron-3.5-lightning:free',
+        'google/gemma-4-31b-it:free',
+        'google/gemma-4-26b-a4b-it:free',
+        'thinkingmachines/inkling:free',
+        'thinkingmachines/inkling-2-small:free',
+        'minimax/minimax-m3:free',
+        'z-ai/glm-5.2:free',
+        'poolside/laguna-s-2.1:free',
+        'poolside/laguna-xs-2.1:free',
+        'nvidia/nemotron-3-super-120b-a12b:free',
+        'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+        'nvidia/nemotron-3.5-super-vl:free',
+        'dots-studio/dots-3-note-preview:free',
+        'cohere/north-mini-code:free',
+        'recursive/flint-v1.0:free',
+        'particle-ai/particle-1:free',
+        'baidu/ernie-5.5-flash-preview:free',
+        'liquid/lfm-3-1.7b:free',
+        'inclusionai/ling-3.0-flash:free',
+        'stealth/union-alpha',
+        'stealth/space-bunny-alpha',
+        'anthropic/claude-fable-5.2',
+        'anthropic/claude-fable-5.1',
+        'anthropic/claude-fable-5',
+        'anthropic/claude-opus-5.5',
+        'anthropic/claude-opus-5',
+        'anthropic/claude-sonnet-5.5',
+        'anthropic/claude-sonnet-5',
+        'openai/gpt-6-astra',
+        'openai/gpt-6.1-sol',
+        'openai/gpt-6-luna',
+        'openai/gpt-5.5',
+        'google/gemini-4-argon',
+        'deepseek/deepseek-v4-pro',
+        'deepseek/deepseek-v4.1-flash',
+        'qwen/qwen3.8-max-0902',
+        'moonshotai/kimi-k3',
+        'z-ai/glm-5.3'
+    ],
     gemini: [
         'gemini-3.8-flash', 'gemini-4-hydrogen', 'gemini-4-carbon', 'gemini-4-argon', 'gemini-3.7-flash',
         'gemini-3.1-pro-preview', 'gemini-3-pro-preview', 'gemini-3.6-flash', 'gemini-3.1-flash-lite-preview'
@@ -289,7 +330,7 @@ export class ConfigService extends EventEmitter {
 
                 const curated = CURATED_STATIC_MODELS[pid] || [];
                 const mergedMap = new Map<string, string>();
-                for (const mid of [...agenticIds, ...curated]) {
+                for (const mid of [...curated, ...agenticIds]) {
                     const lk = mid.toLowerCase();
                     if (!mergedMap.has(lk)) {
                         mergedMap.set(lk, mid);
@@ -331,7 +372,7 @@ export class ConfigService extends EventEmitter {
                 keyMasked,
                 baseUrl: p.baseUrl,
                 docUrl: '',
-                models: modelsList.slice(0, 100)
+                models: modelsList.slice(0, 500)
             });
         }
 
@@ -435,14 +476,12 @@ export class ConfigService extends EventEmitter {
                     if (fs.existsSync(this.envPath)) {
                         envContent = await fs.promises.readFile(this.envPath, 'utf8');
                     }
-                    const pattern = new RegExp(`^#?\\s*${envVar}=.*$`, 'm');
-                    const replacement = `${envVar}=${apiKey.trim()}`;
-                    if (pattern.test(envContent)) {
-                        envContent = envContent.replace(pattern, replacement);
-                    } else {
-                        envContent = envContent.trimEnd() + '\n' + replacement + '\n';
-                    }
-                    await fs.promises.writeFile(this.envPath, envContent, 'utf8');
+                    // Filter out ALL occurrences of this env variable (active or commented) to eliminate duplicates
+                    const lines = envContent.split(/\r?\n/);
+                    const varPattern = new RegExp(`^#?\\s*${envVar}\\s*=`, 'i');
+                    const filteredLines = lines.filter(line => !varPattern.test(line.trim()));
+                    filteredLines.push(`${envVar}=${apiKey.trim()}`);
+                    await fs.promises.writeFile(this.envPath, filteredLines.join('\n') + '\n', 'utf8');
                 }
             }
 
@@ -461,24 +500,31 @@ export class ConfigService extends EventEmitter {
     }
 
     private cleanModelName(modelId: string): string {
-        const name = modelId.split('/').pop() || modelId;
-        const cleaned = name.replace(/:free$/i, '');
+        const vendor = modelId.includes('/') ? modelId.split('/')[0] : '';
+        const rawName = modelId.split('/').pop() || modelId;
+        const cleaned = rawName.replace(/:free$/i, '');
         const parts = cleaned.split(/[-_]/);
-        return parts.map(p => {
+        const formattedName = parts.map(p => {
             const lower = p.toLowerCase();
-            if (['ai', 'gpt', 'api', 'moa', 'nim', 'ui', 'r1', 'v1', 'v2', 'v3', 'v4', 'pro', 'lite'].includes(lower) || /\d/.test(p)) {
+            if (['ai', 'gpt', 'api', 'moa', 'nim', 'ui', 'r1', 'v1', 'v2', 'v3', 'v4', 'pro', 'lite', 'vl', '550b', '120b', '30b', '70b', '31b', '26b', 'a55b', 'a12b', 'a3b', 'a4b'].includes(lower) || /\d/.test(p)) {
                 return p.toUpperCase();
             }
             return p.charAt(0).toUpperCase() + p.slice(1);
-        }).join(' ') || modelId;
+        }).join(' ') || rawName;
+
+        if (vendor && !formattedName.toLowerCase().includes(vendor.toLowerCase().replace(/[-_]/g, ' '))) {
+            const vendorFormatted = vendor.split(/[-_]/).map(v => v.charAt(0).toUpperCase() + v.slice(1)).join(' ');
+            return `${vendorFormatted} ${formattedName}`;
+        }
+        return formattedName;
     }
 
     private categorizeModel(mid: string): string {
         const lower = mid.toLowerCase();
-        if (lower.includes(':free')) return 'Free';
-        if (lower.includes('sonnet') || lower.includes('gpt-4o') || lower.includes('deepseek-chat') || lower.includes('opus') || lower.includes('3.1-pro')) return 'Top Rated';
-        if (lower.includes('haiku') || lower.includes('mini') || lower.includes('flash')) return 'Fast';
-        if (lower.includes('r1') || lower.includes('o1') || lower.includes('o3') || lower.includes('reason')) return 'Reasoning';
+        if (lower.includes(':free') || lower.includes('free') || lower.includes('alpha')) return 'Free';
+        if (lower.includes('sonnet') || lower.includes('gpt-4o') || lower.includes('deepseek-chat') || lower.includes('opus') || lower.includes('3.1-pro') || lower.includes('fable') || lower.includes('kimi-k3')) return 'Top Rated';
+        if (lower.includes('haiku') || lower.includes('mini') || lower.includes('flash') || lower.includes('fast')) return 'Fast';
+        if (lower.includes('r1') || lower.includes('o1') || lower.includes('o3') || lower.includes('reason') || lower.includes('thinking')) return 'Reasoning';
         return 'Catalog';
     }
 

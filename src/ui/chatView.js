@@ -416,17 +416,22 @@ function renderMessage(msg) {
     let timelineHtml = '';
     if (msg.toolCalls && msg.toolCalls.length > 0) {
         const stepsHtml = msg.toolCalls.map(tc => renderTimelineStep(tc)).join('');
+        const hasSkillLearning = msg.isSkillLearning || msg.learnedSkill || msg.toolCalls.some(tc => {
+            const name = (tc.name || tc.title || '').toLowerCase();
+            return name.includes('skill') || name.includes('learn') || name.includes('teach') || name.includes('curator') || name.includes('memor');
+        });
         timelineHtml = `
             <div class="execution-timeline-container">
                 ${stepsHtml}
             </div>
+            ${hasSkillLearning ? `
             <div class="learned-skill-card">
                 <span class="learned-skill-icon">⚡</span>
                 <div class="learned-skill-body">
                     <h4 class="learned-skill-title">از این پروژه یاد می‌گیرم</h4>
                     <p class="learned-skill-desc">الگوهای معماری در حافظهٔ محلی ذخیره می‌شوند.</p>
                 </div>
-            </div>
+            </div>` : ''}
             <div class="safety-guarantee-pill">
                 <span>🛡️ هیچ تغییری بدون تأیید شما اعمال نمی‌شود.</span>
             </div>

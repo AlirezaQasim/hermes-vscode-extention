@@ -69,6 +69,18 @@
         return false;
     }
 
+    function hasLearnedSkill(msg) {
+        if (!msg) return false;
+        if (msg.learnedSkill || msg.isSkillLearning) return true;
+        if (msg.toolCalls && Array.isArray(msg.toolCalls)) {
+            return msg.toolCalls.some(tc => {
+                const name = (tc.name || tc.title || '').toLowerCase();
+                return name.includes('skill') || name.includes('learn') || name.includes('teach') || name.includes('curator') || name.includes('memor');
+            });
+        }
+        return false;
+    }
+
     function isFailedTurn(msg) {
         if (msg.displayKind === 'failed_turn') return true;
         if (msg.errorMessage || msg.errorCode) return true;
@@ -355,15 +367,17 @@
                         {/each}
                     </div>
 
-                    <!-- Only show learned skill card once at the end of the active tool sequence -->
+                    <!-- Only show learned skill card when agent is actively learning or writing a skill -->
                     {#if isLastWithTools(msg, $messages)}
-                        <div class="learned-skill-card">
-                            <span class="learned-skill-icon">⚡</span>
-                            <div class="learned-skill-body">
-                                <h4 class="learned-skill-title">از این پروژه یاد می‌گیرم</h4>
-                                <p class="learned-skill-desc">الگوهای معماری در حافظهٔ محلی ذخیره می‌شوند.</p>
+                        {#if hasLearnedSkill(msg) || (isLastMsg(msg) && $agentActivity.state === 'writing_skill')}
+                            <div class="learned-skill-card">
+                                <span class="learned-skill-icon">⚡</span>
+                                <div class="learned-skill-body">
+                                    <h4 class="learned-skill-title">از این پروژه یاد می‌گیرم</h4>
+                                    <p class="learned-skill-desc">الگوهای معماری در حافظهٔ محلی ذخیره می‌شوند.</p>
+                                </div>
                             </div>
-                        </div>
+                        {/if}
 
                         <div class="safety-guarantee-pill">
                             <span>🛡️ هیچ تغییری بدون تأیید شما اعمال نمی‌شود.</span>

@@ -734,12 +734,9 @@ def do_save_model_config(hermes_home_str, provider, model, api_key=None, base_ur
                     with open(env_file, "r", encoding="utf-8", errors="ignore") as f:
                         env_content = f.read()
 
-                pattern = rf'(?m)^#?\s*{re.escape(env_var)}=.*$'
-                replacement = f"{env_var}={api_key.strip()}"
-                if re.search(pattern, env_content):
-                    env_content = re.sub(pattern, replacement, env_content, count=1)
-                else:
-                    env_content = env_content.rstrip() + "\n" + replacement + "\n"
+                lines = [l for l in env_content.splitlines() if not re.match(rf'^#?\s*{re.escape(env_var)}\s*=', l.strip(), re.I)]
+                lines.append(f"{env_var}={api_key.strip()}")
+                env_content = "\n".join(lines) + "\n"
 
                 with open(env_file, "w", encoding="utf-8") as f:
                     f.write(env_content)

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-11-14
+
+### Fixed
+- **API Key Persistence:** Fixed duplicate `OPENROUTER_API_KEY` entries in `.env` and updated configuration updater to prune all previous duplicates, ensuring new keys persist and display correctly with updated masked tags.
+- **OpenRouter Model Catalog & Free Tier Filter:** Added Hermes curated static models to OpenRouter model list, ensuring free models like `nvidia/nemotron-3-ultra-550b-a55b:free`, `nvidia/nemotron-3.5-lightning:free`, and others are indexed, categorized, and visible when the Free Tier filter is active.
+- **Dynamic Model Selection:** Automatically snaps model selection to valid options upon changing operators or filters, preventing empty model select fields.
+- **Conditional Skill Learning Card:** Fixed the purple learning card ("از این پروژه یاد می‌گیرم") so it only appears when the agent is actively learning or writing a skill, rather than unconditionally on every assistant response.
+
 ## [1.0.1] - 2026-11-14
 
 ### Added

@@ -24,11 +24,16 @@
 
     $: availableModels = (activeProvider?.models || []).filter((m) => {
         if (modelFilter === 'all') return true;
-        if (modelFilter === 'free') return m.tag.toLowerCase().includes('free');
+        if (modelFilter === 'free') return m.tag.toLowerCase().includes('free') || m.id.toLowerCase().includes(':free') || m.name.toLowerCase().includes('free');
         if (modelFilter === 'top') return m.tag.toLowerCase().includes('top') || m.tag.toLowerCase().includes('recommended');
         if (modelFilter === 'fast') return m.tag.toLowerCase().includes('fast');
         return true;
     });
+
+    // Auto-select first available model if current selection is not in the filtered list
+    $: if (availableModels.length > 0 && !availableModels.some(m => m.id === $selectedModelId)) {
+        $selectedModelId = availableModels[0].id;
+    }
 
     // Sync selected provider and reasoning effort when modelConfig loads
     $: if (current.provider && !$selectedModelId) {
@@ -70,6 +75,7 @@
             return;
         }
         applyModelConfig($selectedProviderId, finalModel, $apiKeyInput, $baseUrlInput, $selectedReasoningEffort);
+        $apiKeyInput = '';
     }
 
     function handleReconnect() {

@@ -2,7 +2,7 @@
   "name": "hermes-vscode",
   "displayName": "Hermes Agent",
   "description": "VS Code extension for Hermes Agent — AI coding agent with persistent memory, skills, and multi-platform messaging gateway. Connect via Agent Client Protocol (ACP).",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": "nous-research",
   "engines": {
     "vscode": "^1.85.0"
