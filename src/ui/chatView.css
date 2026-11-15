@@ -464,11 +464,11 @@ body.vscode-light #dashboard-navbar.hud-navbar {
 }
 
 .messages-container::-webkit-scrollbar {
-    width: 6px !important;
+    width: 5px !important;
 }
 
 .messages-container::-webkit-scrollbar-track {
-    background: rgba(0, 0, 0, 0.15) !important;
+    background: transparent !important;
 }
 
 .messages-container::-webkit-scrollbar-thumb {
@@ -477,7 +477,7 @@ body.vscode-light #dashboard-navbar.hud-navbar {
 }
 
 .messages-container::-webkit-scrollbar-thumb:hover {
-    background: rgba(245, 185, 66, 0.55) !important;
+    background: rgba(212, 163, 89, 0.55) !important;
 }
 
 /* Mission Hub Screen */
@@ -1180,6 +1180,7 @@ pre {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    overflow: visible;
 }
 
 .command-capsule {
@@ -1193,6 +1194,7 @@ pre {
     box-shadow: 0 4px 18px rgba(0, 0, 0, 0.15);
     transition: border-color 0.2s, box-shadow 0.2s;
     position: relative;
+    overflow: visible;
 }
 
 body.vscode-light .command-capsule {
@@ -1260,37 +1262,88 @@ body.vscode-light .command-capsule {
 
 .capsule-controls-row {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
     padding-top: 5px;
     border-top: 1px solid rgba(255, 255, 255, 0.05);
+    gap: 6px 4px;
+    min-width: 0;
 }
 
 .capsule-left-tools {
     display: flex;
     align-items: center;
-    gap: 6px;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: visible;
 }
 
 .capsule-model-pill {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 8px;
-    padding: 3px 8px;
+    padding: 3px 6px;
     font-size: 11px;
     color: var(--hermes-gold);
     cursor: pointer;
     transition: all 0.15s ease;
     font-family: monospace;
     white-space: nowrap;
+    flex-shrink: 0;
+    max-width: 140px;
+}
+
+.model-pill-name {
+    display: inline-block;
+    max-width: 85px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
 }
 
 .capsule-model-pill:hover {
     background: rgba(245, 185, 66, 0.15);
     border-color: rgba(245, 185, 66, 0.4);
+}
+
+.capsule-reasoning-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: rgba(168, 85, 247, 0.08);
+    border: 1px solid rgba(168, 85, 247, 0.25);
+    color: #c084fc;
+    border-radius: 8px;
+    padding: 3px 6px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: monospace;
+    white-space: nowrap;
+    flex-shrink: 0;
+    max-width: 95px;
+}
+
+.capsule-reasoning-pill .model-pill-name {
+    display: inline-block;
+    max-width: 50px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.capsule-reasoning-pill:hover {
+    background: rgba(168, 85, 247, 0.18);
+    border-color: rgba(168, 85, 247, 0.5);
+    color: #e9d5ff;
 }
 
 .capsule-tool-btn {
@@ -1306,6 +1359,30 @@ body.vscode-light .command-capsule {
     color: var(--hermes-text-muted);
     cursor: pointer;
     transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+
+.capsule-attach-btn {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--hermes-gold);
+}
+
+.capsule-attach-btn:hover {
+    background: rgba(245, 185, 66, 0.15);
+    color: #fde047;
+    border-color: rgba(245, 185, 66, 0.4);
+}
+
+.capsule-new-chat-btn {
+    font-size: 13px;
+    color: #a78bfa;
+}
+
+.capsule-new-chat-btn:hover {
+    background: rgba(167, 139, 250, 0.15);
+    color: #c4b5fd;
+    border-color: rgba(167, 139, 250, 0.4);
 }
 
 .capsule-tool-btn:hover {
@@ -1317,6 +1394,8 @@ body.vscode-light .command-capsule {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-shrink: 0;
+    margin-inline-start: auto;
 }
 
 .capsule-timer {
@@ -1369,12 +1448,33 @@ body.vscode-light .command-capsule {
     padding: 1px 4px 0 4px;
     margin: 0;
     line-height: 1.2;
+    overflow: hidden;
+    gap: 6px;
+    user-select: none;
+}
+
+.footer-left {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
+}
+
+.footer-center {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+    padding: 0 4px;
+    flex: 1 1 auto;
 }
 
 .footer-right {
     display: flex;
     align-items: center;
     gap: 5px;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .footer-dot {
@@ -2826,6 +2926,30 @@ pre, code, .alert-code, .env-info-val, .pill-name, .model-tag, .cmd-prefix, .too
     font-family: monospace;
 }
 
+.failed-turn-raw-error {
+    margin: 8px 0;
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    border-radius: 6px;
+    font-family: var(--vscode-editor-font-family, Consolas, 'Courier New', monospace);
+    font-size: 11px;
+    line-height: 1.45;
+    color: #fca5a5;
+    word-break: break-word;
+    white-space: pre-wrap;
+    direction: ltr;
+    text-align: left;
+    user-select: text;
+}
+
+.failed-turn-raw-error code {
+    background: transparent !important;
+    padding: 0 !important;
+    color: inherit !important;
+    font-family: inherit !important;
+}
+
 .failed-turn-actions {
     margin-top: 10px;
 }
@@ -2893,5 +3017,783 @@ pre, code, .alert-code, .env-info-val, .pill-name, .model-tag, .cmd-prefix, .too
     font-weight: 600;
     box-shadow: 0 0 10px rgba(245, 185, 66, 0.25);
 }
+
+/* ==========================================================================
+   Phase 5: Attachments, Voice & Visual CWD Selector Tokens
+   ========================================================================== */
+
+/* Attachments preview bar in command capsule */
+.capsule-attachments-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 10px 4px 10px;
+    border-bottom: 1px solid var(--hermes-border);
+    background: rgba(14, 18, 28, 0.5);
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+}
+
+.capsule-attachment-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(22, 28, 42, 0.9);
+    border: 1px solid rgba(245, 185, 66, 0.35);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    color: var(--hermes-text);
+    animation: fadeIn 0.15s ease-out;
+}
+
+.capsule-attachment-chip .chip-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    object-fit: cover;
+}
+
+.capsule-attachment-chip .chip-name {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.capsule-attachment-chip .chip-size {
+    font-size: 9.5px;
+    color: var(--hermes-text-muted);
+}
+
+.capsule-attachment-chip .chip-remove-btn {
+    background: transparent;
+    border: none;
+    color: var(--hermes-text-muted);
+    cursor: pointer;
+    padding: 0 2px;
+    font-size: 11px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    transition: color 0.15s;
+}
+
+.capsule-attachment-chip .chip-remove-btn:hover {
+    color: #ef4444;
+}
+
+/* Drop target highlight */
+.command-capsule.drag-over {
+    border-color: var(--hermes-gold) !important;
+    box-shadow: 0 0 16px rgba(245, 185, 66, 0.4) !important;
+}
+
+/* Visual CWD Selector Pill & Dropdown */
+.capsule-cwd-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(22, 28, 42, 0.85);
+    border: 1px solid var(--hermes-border);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    color: var(--hermes-text-muted);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.capsule-cwd-pill:hover {
+    color: var(--hermes-text);
+    border-color: rgba(245, 185, 66, 0.4);
+    background: rgba(28, 36, 54, 0.95);
+}
+
+.capsule-cwd-pill .cwd-name {
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cwd-dropdown-menu {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    inset-inline-start: 0;
+    min-width: 180px;
+    max-width: min(320px, 85vw);
+    max-height: 240px;
+    overflow-y: auto;
+    background: rgba(14, 18, 28, 0.98);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(245, 185, 66, 0.45);
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8), 0 0 16px rgba(245, 185, 66, 0.25);
+    padding: 5px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.cwd-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--hermes-text);
+    font-size: 11.5px;
+    text-align: left;
+    cursor: pointer;
+    width: 100%;
+    transition: all 0.15s ease;
+}
+
+.cwd-dropdown-item:hover {
+    background: rgba(245, 185, 66, 0.15);
+    color: var(--hermes-gold);
+}
+
+.cwd-dropdown-item.active {
+    background: rgba(245, 185, 66, 0.2);
+    color: var(--hermes-gold);
+    font-weight: 600;
+}
+
+/* Microphone & Voice Recording */
+.capsule-mic-btn {
+    background: transparent;
+    border: none;
+    color: var(--hermes-text-muted);
+    font-size: 14px;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.capsule-mic-btn:hover {
+    color: var(--hermes-gold);
+    background: rgba(245, 185, 66, 0.1);
+}
+
+.capsule-mic-btn.recording {
+    color: #ef4444;
+    animation: pulseRecord 1s infinite;
+}
+
+@keyframes pulseRecord {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.15); opacity: 0.7; }
+}
+
+.voice-recording-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    border-radius: 14px;
+    padding: 2px 10px;
+    font-size: 11px;
+    color: #f87171;
+    font-weight: 600;
+}
+
+.recording-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ef4444;
+    animation: pulseRecord 1s infinite;
+}
+
+/* Message attachments row */
+.message-attachments-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.message-attachment-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(14, 18, 28, 0.6);
+    border: 1px solid var(--hermes-border);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    color: var(--hermes-text);
+}
+
+.message-attachment-pill .attachment-thumb {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    object-fit: cover;
+}
+
+/* Tool Result Details & Status Badges */
+.step-status-badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-weight: 500;
+    margin-inline-start: auto;
+}
+
+.step-status-badge.running {
+    background: rgba(59, 130, 246, 0.2);
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.step-status-badge.done {
+    background: rgba(16, 185, 129, 0.2);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.step-status-badge.error {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.tool-result-details {
+    margin-top: 6px;
+    border-top: 1px solid var(--hermes-border);
+    padding-top: 4px;
+}
+
+.tool-result-summary {
+    font-size: 10.5px;
+    color: var(--hermes-text-muted);
+    cursor: pointer;
+    user-select: none;
+}
+
+.tool-result-summary:hover {
+    color: var(--hermes-gold);
+}
+
+.tool-result-pre {
+    margin-top: 4px;
+    max-height: 180px;
+    overflow: auto;
+    font-size: 10.5px;
+    background: rgba(10, 14, 22, 0.7);
+    border-radius: 4px;
+    padding: 6px 8px;
+    max-width: 100%;
+    word-break: break-all;
+    white-space: pre-wrap;
+}
+
+/* ==========================================================================
+   Full Fluid & Responsive Architecture (All Screens, 10"-13" Displays & Narrow Sidebars)
+   ========================================================================== */
+
+/* Universal fluid text & container constraints */
+.messages-container,
+.message,
+.role-user,
+.role-assistant,
+.user-bubble-content,
+.assistant-content,
+.thinking,
+.execution-timeline-container,
+.timeline-step,
+.timeline-body,
+.code-block-wrapper,
+pre {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+pre, code {
+    word-break: break-word;
+    overflow-x: auto;
+}
+
+/* 1. Medium / Standard Sidebar (<= 480px) */
+@media (max-width: 480px) {
+    #dashboard-navbar.hud-navbar {
+        padding: 5px 8px;
+        margin: 4px 6px 3px 6px;
+        border-radius: 11px;
+    }
+
+    .brand-logo {
+        font-size: 17px;
+    }
+
+    .brand-title {
+        font-size: 11.5px;
+        letter-spacing: 0.8px;
+    }
+
+    .brand-subtitle {
+        font-size: 7.5px;
+        letter-spacing: 0.5px;
+    }
+
+    .hud-status-pill {
+        padding: 2px 7px;
+        font-size: 9.5px;
+        gap: 4px;
+    }
+
+    .status-label {
+        max-width: 75px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .nav-tabs {
+        gap: 2px;
+    }
+
+    .nav-tab {
+        padding: 3px 6px;
+    }
+
+    .nav-tab .nav-text {
+        display: none !important;
+    }
+
+    /* Command Capsule */
+    .command-capsule-wrapper {
+        padding: 2px 4px 2px 4px;
+    }
+
+    .command-capsule {
+        padding: 5px 8px;
+        border-radius: 12px;
+        gap: 3px;
+    }
+
+    .capsule-hint {
+        display: none !important;
+    }
+
+    .capsule-enter-hint {
+        display: none !important;
+    }
+
+    .footer-center {
+        display: none !important;
+    }
+
+    .model-pill-name {
+        max-width: 65px;
+    }
+
+    .cwd-name {
+        max-width: 50px;
+    }
+
+    .capsule-reasoning-pill .model-pill-name {
+        max-width: 42px;
+    }
+
+    .capsule-action-btn {
+        width: 28px;
+        height: 28px;
+        font-size: 14px;
+    }
+
+    /* Mission Hub Screen */
+    .mission-hub-screen {
+        padding: 12px 8px 8px 8px;
+        gap: 10px;
+    }
+
+    .astrolabe-dial,
+    .dial-orbit-ring {
+        width: 90px;
+        height: 90px;
+    }
+
+    .dial-ticks-ring {
+        width: 68px;
+        height: 68px;
+    }
+
+    .dial-inner-ring {
+        width: 48px;
+        height: 48px;
+    }
+
+    .dial-core-emblem {
+        font-size: 20px;
+    }
+
+    .mission-title {
+        font-size: 15px;
+    }
+
+    .mission-subtitle {
+        font-size: 10.5px;
+    }
+
+    .mission-cards-container {
+        grid-template-columns: 1fr;
+        gap: 8px;
+        max-width: 100%;
+    }
+
+    .mission-card {
+        padding: 9px 11px;
+    }
+
+    .mission-workspace-subbar {
+        font-size: 9px;
+        gap: 4px;
+    }
+
+    /* Panels & Lists */
+    .panel-header {
+        padding: 8px 10px;
+    }
+
+    .cards-list {
+        padding: 8px 8px;
+        gap: 6px;
+    }
+
+    .session-card, .skill-card {
+        padding: 10px 10px;
+    }
+
+    .card-footer {
+        flex-wrap: wrap;
+        gap: 4px;
+        justify-content: flex-start;
+    }
+
+    .btn-card-action {
+        flex: 1 1 auto;
+        height: 26px;
+        padding: 0 8px;
+        font-size: 10.5px;
+        text-align: center;
+    }
+
+    #tab-models {
+        padding: 10px 8px;
+        gap: 10px;
+    }
+
+    .active-model-card {
+        padding: 10px 12px;
+        margin-bottom: 12px !important;
+    }
+
+    .config-form-card.obsidian-card,
+    .settings-card.obsidian-card {
+        padding: 12px 10px;
+        gap: 10px;
+    }
+
+    .filter-chips {
+        gap: 4px;
+    }
+
+    .chip {
+        padding: 3px 8px;
+        font-size: 10px;
+    }
+
+    .setting-actions-grid {
+        gap: 6px;
+    }
+
+    .btn-setting-action {
+        padding: 8px 10px;
+        gap: 8px;
+    }
+
+    .env-info-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+    }
+}
+
+/* 2. Compact Sidebar (<= 380px) - e.g. 13" MacBook / 12" Neo Laptop */
+@media (max-width: 380px) {
+    #dashboard-navbar.hud-navbar {
+        padding: 4px 6px;
+        margin: 3px 4px 2px 4px;
+    }
+
+    .brand-subtitle {
+        display: none !important;
+    }
+
+    .brand-title {
+        font-size: 10.5px;
+    }
+
+    .brand-logo {
+        font-size: 15px;
+    }
+
+    .status-label {
+        max-width: 50px;
+    }
+
+    .hud-status-pill {
+        padding: 2px 5px;
+        font-size: 9px;
+    }
+
+    /* Command Capsule Compact */
+    .capsule-controls-row {
+        gap: 4px 3px;
+    }
+
+    .capsule-left-tools {
+        gap: 3px;
+    }
+
+    .capsule-right-tools {
+        gap: 4px;
+    }
+
+    .capsule-tool-btn {
+        width: 22px;
+        height: 22px;
+        font-size: 11px;
+    }
+
+    .capsule-attach-btn {
+        font-size: 13px;
+    }
+
+    .capsule-action-btn {
+        width: 26px;
+        height: 26px;
+        font-size: 13px;
+    }
+
+    .capsule-mic-btn {
+        width: 24px;
+        height: 24px;
+        font-size: 11.5px;
+    }
+
+    .model-pill-name {
+        max-width: 50px;
+    }
+
+    .cwd-name {
+        max-width: 38px;
+    }
+
+    .capsule-reasoning-pill .model-pill-name {
+        max-width: 32px;
+    }
+
+    .capsule-model-pill,
+    .capsule-reasoning-pill,
+    .capsule-cwd-pill {
+        padding: 2px 4px;
+        font-size: 9.5px;
+        gap: 2px;
+    }
+
+    .capsule-model-pill .model-pill-arrow {
+        display: none !important;
+    }
+
+    .capsule-cwd-pill span:last-child {
+        display: none !important;
+    }
+
+    .footer-left {
+        font-size: 8px;
+    }
+
+    .footer-right {
+        font-size: 8px;
+    }
+
+    /* Messages & Bubbles */
+    .messages-container {
+        padding: 4px 6px;
+    }
+
+    .user-bubble-content {
+        padding: 6px 8px;
+        font-size: 11.5px;
+        border-radius: 10px 10px 3px 10px;
+    }
+
+    .assistant-content {
+        padding: 1px 2px;
+        font-size: 11.5px;
+    }
+
+    .thinking summary {
+        padding: 4px 6px;
+        font-size: 10px;
+    }
+
+    .thinking-content {
+        padding: 5px 7px;
+        font-size: 10.5px;
+    }
+
+    pre {
+        font-size: 9.5px;
+        padding: 5px 6px;
+    }
+}
+
+/* 3. Ultra-Compact (<= 300px) - e.g. 10" iPad / Narrow Split Panes */
+@media (max-width: 300px) {
+    #dashboard-navbar.hud-navbar {
+        padding: 3px 4px;
+        margin: 2px 2px 2px 2px;
+    }
+
+    .status-label {
+        display: none !important;
+    }
+
+    .hud-status-pill {
+        padding: 3px 4px;
+    }
+
+    .nav-tab {
+        padding: 2px 3px;
+    }
+
+    .nav-badge {
+        padding: 1px 3px;
+        font-size: 8px;
+    }
+
+    .model-pill-name {
+        max-width: 36px;
+    }
+
+    .cwd-name {
+        max-width: 26px;
+    }
+
+    .capsule-reasoning-pill .model-pill-name {
+        display: none !important;
+    }
+
+    .capsule-footer-bar {
+        font-size: 7.5px;
+    }
+
+    .footer-right span:not(.status-indicator-dot) {
+        display: none !important;
+    }
+
+    .mission-hub-screen {
+        padding: 6px 4px;
+    }
+
+    .astrolabe-dial-wrap {
+        display: none !important;
+    }
+
+    .mission-top-banner {
+        display: none !important;
+    }
+}
+
+/* 4. Short Vertical Height (<= 600px) - e.g. Split Views & Small Screens */
+@media (max-height: 600px) {
+    .astrolabe-dial,
+    .dial-orbit-ring {
+        width: 70px;
+        height: 70px;
+    }
+
+    .dial-ticks-ring {
+        width: 52px;
+        height: 52px;
+    }
+
+    .dial-inner-ring {
+        width: 36px;
+        height: 36px;
+    }
+
+    .dial-core-emblem {
+        font-size: 16px;
+    }
+
+    .mission-headings {
+        margin: 0;
+    }
+
+    .mission-title {
+        font-size: 14px;
+        margin-bottom: 2px;
+    }
+
+    .mission-subtitle {
+        font-size: 10px;
+    }
+
+    .mission-hub-screen {
+        gap: 6px;
+        padding: 8px 8px;
+    }
+}
+
+/* 5. Ultra-Short Vertical Height (<= 450px) - e.g. Bottom Panel / Terminal Dock */
+@media (max-height: 450px) {
+    #dashboard-navbar.hud-navbar {
+        padding: 3px 6px;
+        margin: 2px 4px 1px 4px;
+    }
+
+    .astrolabe-dial-wrap {
+        display: none !important;
+    }
+
+    .mission-top-banner {
+        display: none !important;
+    }
+
+    .mission-workspace-subbar {
+        display: none !important;
+    }
+
+    .capsule-footer-bar {
+        display: none !important;
+    }
+
+    .command-capsule {
+        padding: 4px 6px;
+    }
+
+    #prompt-input {
+        min-height: 22px;
+        max-height: 70px;
+    }
+}
+
 
 

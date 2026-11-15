@@ -66,11 +66,18 @@ export interface ACPSessionUpdate {
     };
 }
 
+export interface ACPPermissionOption {
+    optionId: string;
+    kind: string;
+    name: string;
+}
+
 export interface ACPPermissionRequest {
+    id?: number | string;
     sessionId: string;
-    requestId: string;
+    requestId?: string;
     toolCall: any;
-    options: string[];
+    options: ACPPermissionOption[] | string[];
 }
 
 export interface ACPToolCall {
@@ -96,6 +103,9 @@ export class HermesACPClient extends EventEmitter {
     private buffer = '';
     private isConnected = false;
     private currentSessionId: string | null = null;
+    private isReplayingHistory = false;
+    private permissionRequestHandler: ((request: ACPPermissionRequest) => Promise<string>) | null = null;
+    private autoApproveEnabled = false;
 
     constructor(config: ACPClientConfig) {
         super();
@@ -112,7 +122,13 @@ export class HermesACPClient extends EventEmitter {
 
                 this.logger.info(`Starting Hermes ACP: command="${commandPath}", args=[${this.config.args.join(', ')}], cwd="${safeCwd}", HERMES_HOME="${hermesHome}"`);
 
-                const env = { ...process.env, ...this.config.env, HERMES_HOME: hermesHome };
+                const env = {
+                    ...process.env,
+                    ...this.config.env,
+                    HERMES_HOME: hermesHome,
+                    PYTHONUNBUFFERED: '1',
+                    PYTHONIOENCODING: 'utf-8'
+                };
 
                 const isWindows = process.platform === 'win32';
                 const useShell = isWindows && (commandPath.toLowerCase().endsWith('.cmd') || commandPath.toLowerCase().endsWith('.bat'));
@@ -244,6 +260,58 @@ export class HermesACPClient extends EventEmitter {
         }
     }
 
+    setAutoApprove(enabled: boolean): void {
+        this.autoApproveEnabled = enabled;
+        this.logger.info(`Auto-approve permissions: ${enabled}`);
+    }
+
+    setPermissionRequestHandler(handler: (request: ACPPermissionRequest) => Promise<string>): void {
+        this.permissionRequestHandler = handler;
+    }
+
+    getCurrentSessionId(): string | null {
+        return this.currentSessionId;
+    }
+
+    sendResponse(id: number | string, result: any): void {
+        if (!this.process || !this.process.stdin) {
+            this.logger.error('Cannot send response: Hermes ACP is not connected');
+            return;
+        }
+
+        const message = {
+            jsonrpc: '2.0',
+            id,
+            result
+        };
+
+        const data = JSON.stringify(message) + '\n';
+        this.process.stdin.write(data, (error) => {
+            if (error) {
+                this.logger.error('Failed to send response to Hermes ACP', error);
+            }
+        });
+    }
+
+    sendErrorResponse(id: number | string, code: number, messageText: string, data?: any): void {
+        if (!this.process || !this.process.stdin) {
+            return;
+        }
+
+        const message = {
+            jsonrpc: '2.0',
+            id,
+            error: {
+                code,
+                message: messageText,
+                data
+            }
+        };
+
+        const str = JSON.stringify(message) + '\n';
+        this.process.stdin.write(str);
+    }
+
     private handleMessage(message: ACPMessage): void {
         if (message.id !== undefined && this.pendingRequests.has(message.id)) {
             const { resolve, reject } = this.pendingRequests.get(message.id)!;
@@ -254,16 +322,210 @@ export class HermesACPClient extends EventEmitter {
             } else {
                 resolve(message.result);
             }
+        } else if (message.id !== undefined && message.method) {
+            this.handleServerRequest(message.id, message.method, message.params);
         } else if (message.method) {
             this.handleNotification(message.method, message.params);
         }
     }
 
+    private async handleServerRequest(id: number | string, method: string, params: any): Promise<void> {
+        this.logger.info(`Received server request from Hermes: method=${method}, id=${id}`);
+
+        switch (method) {
+            case 'session/request_permission':
+            case 'session/requestPermission':
+            case 'permission/request': {
+                try {
+                    await this.handlePermissionServerRequest(id, params);
+                } catch (error) {
+                    this.logger.error('Failed to handle permission request', error);
+                    this.sendResponse(id, {
+                        outcome: {
+                            outcome: 'cancelled'
+                        }
+                    });
+                }
+                break;
+            }
+            case 'fs/readTextFile':
+            case 'fs/read_text_file': {
+                try {
+                    const filePath = params?.path || params?.filePath;
+                    if (!filePath) {
+                        this.sendErrorResponse(id, -32602, 'Path required');
+                        return;
+                    }
+                    const content = await fs.promises.readFile(filePath, 'utf8');
+                    this.sendResponse(id, { content });
+                } catch (error: any) {
+                    this.sendErrorResponse(id, -32603, error.message || 'Failed to read file');
+                }
+                break;
+            }
+            case 'fs/writeTextFile':
+            case 'fs/write_text_file': {
+                try {
+                    const filePath = params?.path || params?.filePath;
+                    const content = params?.content || '';
+                    if (!filePath) {
+                        this.sendErrorResponse(id, -32602, 'Path required');
+                        return;
+                    }
+                    await fs.promises.writeFile(filePath, content, 'utf8');
+                    this.sendResponse(id, { success: true });
+                } catch (error: any) {
+                    this.sendErrorResponse(id, -32603, error.message || 'Failed to write file');
+                }
+                break;
+            }
+            default:
+                this.logger.warn(`Unknown server request method: ${method}`);
+                this.sendErrorResponse(id, -32601, `Method not found: ${method}`);
+        }
+    }
+
+    private async handlePermissionServerRequest(id: number | string, params: any): Promise<void> {
+        const rawOptions = params?.options || [];
+        const normalizedOptions: ACPPermissionOption[] = rawOptions.map((opt: any) => {
+            if (typeof opt === 'string') {
+                return {
+                    optionId: opt,
+                    kind: opt,
+                    name: opt.charAt(0).toUpperCase() + opt.slice(1).replace(/_/g, ' ')
+                };
+            }
+            return {
+                optionId: opt.optionId || opt.option_id || opt.id || 'allow_once',
+                kind: opt.kind || opt.optionId || 'allow_once',
+                name: opt.name || opt.title || (opt.optionId ? opt.optionId.replace(/_/g, ' ') : 'Allow')
+            };
+        });
+
+        if (normalizedOptions.length === 0) {
+            normalizedOptions.push(
+                { optionId: 'allow_once', kind: 'allow_once', name: 'Allow edit' },
+                { optionId: 'deny', kind: 'reject_once', name: 'Deny' }
+            );
+        }
+
+        const toolCall = params?.toolCall || {};
+        const toolName = toolCall.name || toolCall.title || toolCall.kind || 'tool';
+
+        // 1. If autoApprove is active:
+        if (this.autoApproveEnabled) {
+            const allowOpt = normalizedOptions.find(o => 
+                o.kind.startsWith('allow') || o.optionId.startsWith('allow') || o.optionId.includes('allow')
+            ) || normalizedOptions[0];
+
+            const chosenId = allowOpt ? allowOpt.optionId : 'allow_once';
+            this.logger.info(`Auto-approving permission request (${toolName}) with option: ${chosenId}`);
+
+            this.sendResponse(id, {
+                outcome: {
+                    outcome: 'selected',
+                    optionId: chosenId,
+                    option_id: chosenId
+                }
+            });
+            return;
+        }
+
+        // 2. If a permission request handler was registered:
+        if (this.permissionRequestHandler) {
+            const chosenOptionId = await this.permissionRequestHandler({
+                id,
+                sessionId: params?.sessionId || this.currentSessionId || '',
+                requestId: String(id),
+                toolCall,
+                options: normalizedOptions
+            });
+
+            this.logger.info(`User permission decision for ${toolName}: ${chosenOptionId}`);
+            if (chosenOptionId && chosenOptionId !== 'deny' && chosenOptionId !== 'cancel') {
+                this.sendResponse(id, {
+                    outcome: {
+                        outcome: 'selected',
+                        optionId: chosenOptionId,
+                        option_id: chosenOptionId
+                    }
+                });
+            } else {
+                this.sendResponse(id, {
+                    outcome: {
+                        outcome: 'selected',
+                        optionId: 'deny',
+                        option_id: 'deny'
+                    }
+                });
+            }
+            return;
+        }
+
+        // 3. Fallback: emit event
+        this.emit('permissionRequest', {
+            id,
+            sessionId: params?.sessionId || this.currentSessionId || '',
+            requestId: String(id),
+            toolCall,
+            options: normalizedOptions
+        });
+    }
+
     private handleNotification(method: string, params: any): void {
         switch (method) {
-            case 'session/update':
+            case 'session/update': {
+                // Internal listener for history replay termination
+                this.emit('_internalSessionUpdate', params);
+
+                // If currently replaying past session history, do NOT emit sessionUpdate or live streaming chunks or tools.
+                // Past messages are already loaded reliably from SQLite DB in exact chronological order.
+                if (this.isReplayingHistory) {
+                    return;
+                }
+
                 this.emit('sessionUpdate', params);
+
+                // Normalization of ACP standard sessionUpdate and legacy formats
+                const updatePayload = params?.update || params;
+                const updateKind = updatePayload?.sessionUpdate || updatePayload?.session_update || updatePayload?.kind || updatePayload?.type;
+                const sessionId = params?.sessionId || params?.session_id || this.currentSessionId || '';
+
+                if (updateKind === 'agent_thought_chunk' || updateKind === 'thought_chunk' || updateKind === 'thought') {
+                    const text = this.extractTextContent(updatePayload.content);
+                    if (text) {
+                        this.emit('thoughtChunk', text, sessionId);
+                    }
+                } else if (updateKind === 'agent_message_chunk' || updateKind === 'message_chunk' || updateKind === 'content') {
+                    const text = this.extractTextContent(updatePayload.content);
+                    if (text) {
+                        this.emit('messageChunk', text, sessionId);
+                    }
+                } else if (updateKind === 'tool_call' || updateKind === 'tool.started') {
+                    const toolCall = {
+                        id: updatePayload.toolCallId || updatePayload.id || `tc-${Date.now()}`,
+                        name: this.extractToolName(updatePayload),
+                        title: updatePayload.title || updatePayload.name,
+                        args: updatePayload.rawInput || updatePayload.args || updatePayload.arguments || (updatePayload.locations ? { locations: updatePayload.locations } : {}),
+                        kind: updatePayload.kind || 'other',
+                        status: 'running'
+                    };
+                    this.emit('toolCallStart', toolCall, sessionId);
+                } else if (updateKind === 'tool_call_update' || updateKind === 'tool.completed') {
+                    const toolUpdate = {
+                        id: updatePayload.toolCallId || updatePayload.id,
+                        status: updatePayload.status === 'completed' ? 'done' : (updatePayload.status || 'done'),
+                        result: this.extractTextContent(updatePayload.content) || updatePayload.rawOutput || updatePayload.result,
+                        error: updatePayload.error
+                    };
+                    this.emit('toolCallUpdate', toolUpdate, sessionId);
+                } else if (updateKind === 'plan') {
+                    this.emit('planUpdate', updatePayload.entries || updatePayload.content, sessionId);
+                }
                 break;
+            }
+            case 'session/request_permission':
+            case 'session/requestPermission':
             case 'permission/request':
                 this.emit('permissionRequest', params);
                 break;
@@ -277,6 +539,40 @@ export class HermesACPClient extends EventEmitter {
             default:
                 this.logger.debug(`Unhandled notification: ${method}`, params);
         }
+    }
+
+    private extractTextContent(content: any): string {
+        if (!content) return '';
+        if (typeof content === 'string') return content;
+        if (content.text) return content.text;
+        if (Array.isArray(content)) {
+            return content.map(item => {
+                if (typeof item === 'string') return item;
+                if (item.text) return item.text;
+                if (item.content) return this.extractTextContent(item.content);
+                return '';
+            }).join('');
+        }
+        if (typeof content === 'object') {
+            if (content.content) return this.extractTextContent(content.content);
+            try {
+                return JSON.stringify(content);
+            } catch {
+                return '';
+            }
+        }
+        return String(content);
+    }
+
+    private extractToolName(payload: any): string {
+        if (payload.name) return payload.name;
+        if (payload.title && typeof payload.title === 'string') {
+            const parts = payload.title.split(':');
+            if (parts.length > 0 && parts[0].trim()) {
+                return parts[0].trim();
+            }
+        }
+        return payload.kind || 'tool';
     }
 
     private async sendRequest(method: string, params: any, timeoutMs: number = 30000): Promise<any> {
@@ -329,51 +625,90 @@ export class HermesACPClient extends EventEmitter {
             mcpServers: []
         }, 30000);
         this.currentSessionId = response.sessionId;
+
+        if (this.autoApproveEnabled && this.currentSessionId) {
+            this.setSessionMode(this.currentSessionId, 'accept_edits').catch(() => {});
+        }
+
         return response;
     }
 
     async loadSession(sessionId: string, cwd: string): Promise<ACPSession | null> {
         const safeCwd = getHermesSafeCwd(cwd);
-        const response = await this.sendRequest('session/load', {
-            sessionId,
-            cwd: safeCwd,
-            mcpServers: []
-        }, 30000);
-        if (response) {
-            this.currentSessionId = response.sessionId;
+        this.isReplayingHistory = true;
+        try {
+            const response = await this.sendRequest('session/load', {
+                sessionId,
+                cwd: safeCwd,
+                mcpServers: []
+            }, 30000);
+            if (response) {
+                this.currentSessionId = response.sessionId;
+            }
+            await this.waitForHistoryReplay();
+
+            if (this.autoApproveEnabled && this.currentSessionId) {
+                this.setSessionMode(this.currentSessionId, 'accept_edits').catch(() => {});
+            }
+
+            return response;
+        } finally {
+            this.isReplayingHistory = false;
         }
-        await this.waitForHistoryReplay();
-        return response;
     }
 
     private waitForHistoryReplay(): Promise<void> {
         return new Promise((resolve) => {
             const handler = (update: any) => {
-                if (update.kind === 'history_end' || update.kind === 'history_complete') {
-                    this.off('sessionUpdate', handler);
+                const updatePayload = update?.update || update;
+                const updateKind = updatePayload?.sessionUpdate || updatePayload?.session_update || updatePayload?.kind || updatePayload?.type;
+                if (updateKind === 'history_end' || updateKind === 'history_complete' || updateKind === 'turn_complete') {
+                    this.off('_internalSessionUpdate', handler);
                     resolve();
                 }
             };
-            this.on('sessionUpdate', handler);
+            this.on('_internalSessionUpdate', handler);
 
             setTimeout(() => {
-                this.off('sessionUpdate', handler);
+                this.off('_internalSessionUpdate', handler);
                 resolve();
-            }, 8000);
+            }, 1500);
         });
     }
 
-    async sendPrompt(sessionId: string, prompt: string): Promise<any> {
+    async sendPrompt(sessionId: string, prompt: string, attachments?: any[]): Promise<any> {
+        const promptItems: any[] = [
+            {
+                type: 'text',
+                text: prompt
+            }
+        ];
+
+        if (attachments && Array.isArray(attachments)) {
+            for (const att of attachments) {
+                if (att.type === 'image' && att.data) {
+                    promptItems.push({
+                        type: 'image',
+                        data: att.data,
+                        mimeType: att.mimeType || 'image/png'
+                    });
+                } else if (att.content) {
+                    promptItems.push({
+                        type: 'resource',
+                        resource: {
+                            uri: att.path ? `file://${att.path}` : `memory://${att.name}`,
+                            text: att.content
+                        }
+                    });
+                }
+            }
+        }
+
         // Prompts can take several minutes to generate and execute tools
         return await this.sendRequest('session/prompt', {
             sessionId,
-            prompt: [
-                {
-                    type: 'text',
-                    text: prompt
-                }
-            ]
-        }, 600000);
+            prompt: promptItems
+        }, 180000);
     }
 
     async cancelTurn(sessionId: string): Promise<void> {
@@ -402,6 +737,56 @@ export class HermesACPClient extends EventEmitter {
         }, 15000);
     }
 
+    async setSessionMode(sessionId: string, mode: string): Promise<void> {
+        try {
+            await this.sendRequest('session/setMode', {
+                sessionId,
+                modeId: mode
+            }, 10000);
+        } catch {
+            try {
+                await this.sendRequest('session/set_mode', {
+                    sessionId,
+                    mode_id: mode
+                }, 10000);
+            } catch {
+                // Ignore if mode setting is not supported by backend
+            }
+        }
+    }
+
+    async setConfigOption(configId: string, value: string, sessionId?: string): Promise<void> {
+        const sid = sessionId || this.currentSessionId;
+        if (!sid) {
+            this.logger.warn(`Cannot set config option ${configId}: no active session`);
+            return;
+        }
+
+        try {
+            await this.sendRequest('session/setConfigOption', {
+                sessionId: sid,
+                configId,
+                value
+            }, 15000);
+            this.logger.info(`Set ACP config option '${configId}' to '${value}' on session ${sid}`);
+        } catch {
+            try {
+                await this.sendRequest('session/set_config_option', {
+                    sessionId: sid,
+                    config_id: configId,
+                    value
+                }, 15000);
+                this.logger.info(`Set ACP config option '${configId}' to '${value}' (snake_case) on session ${sid}`);
+            } catch (err) {
+                this.logger.warn(`Could not set ACP config option '${configId}'`, err);
+            }
+        }
+    }
+
+    async setReasoningEffort(effort: string, sessionId?: string): Promise<void> {
+        await this.setConfigOption('reasoning_effort', effort, sessionId);
+    }
+
     async setProvider(_sessionId: string, providerId: string): Promise<void> {
         await this.setModel(_sessionId, providerId);
     }
@@ -426,6 +811,12 @@ export class HermesACPClient extends EventEmitter {
     on(event: 'connected', listener: () => void): this;
     on(event: 'disconnected', listener: (reason: string) => void): this;
     on(event: 'sessionUpdate', listener: (update: ACPSessionUpdate) => void): this;
+    on(event: '_internalSessionUpdate', listener: (params: any) => void): this;
+    on(event: 'thoughtChunk', listener: (text: string, sessionId: string) => void): this;
+    on(event: 'messageChunk', listener: (text: string, sessionId: string) => void): this;
+    on(event: 'toolCallStart', listener: (toolCall: any, sessionId: string) => void): this;
+    on(event: 'toolCallUpdate', listener: (toolCall: any, sessionId: string) => void): this;
+    on(event: 'planUpdate', listener: (plan: any, sessionId: string) => void): this;
     on(event: 'permissionRequest', listener: (request: ACPPermissionRequest) => void): this;
     on(event: 'toolCall', listener: (toolCall: ACPToolCall) => void): this;
     on(event: 'tokenUsage', listener: (usage: ACPTokenUsage) => void): this;
@@ -434,9 +825,20 @@ export class HermesACPClient extends EventEmitter {
         return super.on(event, listener);
     }
 
+    off(event: '_internalSessionUpdate', listener: (params: any) => void): this;
+    off(event: string, listener: (...args: any[]) => void): this {
+        return super.off(event, listener);
+    }
+
     emit(event: 'connected'): boolean;
     emit(event: 'disconnected', reason: string): boolean;
     emit(event: 'sessionUpdate', update: ACPSessionUpdate): boolean;
+    emit(event: '_internalSessionUpdate', params: any): boolean;
+    emit(event: 'thoughtChunk', text: string, sessionId: string): boolean;
+    emit(event: 'messageChunk', text: string, sessionId: string): boolean;
+    emit(event: 'toolCallStart', toolCall: any, sessionId: string): boolean;
+    emit(event: 'toolCallUpdate', toolCall: any, sessionId: string): boolean;
+    emit(event: 'planUpdate', plan: any, sessionId: string): boolean;
     emit(event: 'permissionRequest', request: ACPPermissionRequest): boolean;
     emit(event: 'toolCall', toolCall: ACPToolCall): boolean;
     emit(event: 'tokenUsage', usage: ACPTokenUsage): boolean;

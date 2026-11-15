@@ -148,8 +148,13 @@ def query_messages(db_path_str, session_id):
         return []
     try:
         cursor = conn.cursor()
-        rows = cursor.execute("""
-            SELECT id, role, content, tool_calls, tool_name, reasoning, timestamp, COALESCE(display_kind, '') as display_kind
+        cols = [c[1] for c in cursor.execute("PRAGMA table_info(messages)").fetchall()]
+        has_meta = "display_metadata" in cols
+        meta_field = ", COALESCE(display_metadata, '') as display_metadata" if has_meta else ""
+
+        rows = cursor.execute(f"""
+            SELECT id, role, content, tool_calls, tool_name, reasoning, timestamp, 
+                   COALESCE(display_kind, '') as display_kind{meta_field}
             FROM messages
             WHERE session_id = ?
             ORDER BY id ASC
@@ -188,6 +193,21 @@ def query_messages(db_path_str, session_id):
                     "status": "done"
                 }]
             
+            error_msg = None
+            error_code = None
+            if has_meta and r["display_metadata"]:
+                try:
+                    meta_obj = json.loads(r["display_metadata"])
+                    if isinstance(meta_obj, dict):
+                        error_msg = meta_obj.get("error") or meta_obj.get("message")
+                        surface = meta_obj.get("error_surface", {})
+                        if isinstance(surface, dict):
+                            error_code = surface.get("code")
+                            if not error_msg:
+                                error_msg = surface.get("message")
+                except Exception:
+                    pass
+
             result.append({
                 "id": f"msg-{r['id']}",
                 "role": r["role"] or "assistant",
@@ -195,7 +215,9 @@ def query_messages(db_path_str, session_id):
                 "thinking": r["reasoning"] or None,
                 "toolCalls": tc,
                 "timestamp": r["timestamp"] or "",
-                "displayKind": r["display_kind"] or ""
+                "displayKind": r["display_kind"] or "",
+                "errorMessage": error_msg,
+                "errorCode": error_code
             })
         return result
     except Exception as e:

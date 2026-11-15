@@ -1,8 +1,31 @@
 <script>
+    import { onDestroy } from 'svelte';
     import { activeTab, isConnected, agentActivity, postToHost } from '../../state/uiStore';
     import { sessionsList } from '../../state/sessionStore';
     import { skillsList } from '../../state/skillStore';
     import { t } from '../../i18n';
+
+    let thinkingSeconds = 0;
+    let thinkingInterval = null;
+
+    $: if ($agentActivity.state === 'thinking') {
+        if (!thinkingInterval) {
+            thinkingSeconds = 0;
+            const startTime = Date.now();
+            thinkingInterval = setInterval(() => {
+                thinkingSeconds = Number(((Date.now() - startTime) / 1000).toFixed(1));
+            }, 100);
+        }
+    } else {
+        if (thinkingInterval) {
+            clearInterval(thinkingInterval);
+            thinkingInterval = null;
+        }
+    }
+
+    onDestroy(() => {
+        if (thinkingInterval) clearInterval(thinkingInterval);
+    });
 
     function setTab(tab) {
         $activeTab = tab;
@@ -36,7 +59,7 @@
         : !$isConnected
         ? (t('status.disconnected') || 'Disconnected')
         : $agentActivity.state === 'thinking'
-        ? 'Thinking...'
+        ? `Thinking · ${thinkingSeconds.toFixed(1)}s`
         : $agentActivity.state === 'writing_skill'
         ? ($agentActivity.detail ? `⚡ ${$agentActivity.detail}` : 'Writing Skill...')
         : $agentActivity.state === 'tool'

@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-11-14
+
+### Added
+- Native voice notes and audio recording pipeline with PowerShell engine and Google Gemini STT integration
+- Direct sync with authoritative Hermes registry (`models_dev_cache.json`) for exact live models per provider (including all 19 native Google Gemini models)
+- Reasoning effort level selection integrated with `config.yaml` and live ACP prompt parameters
+- Real-time token and thought streaming with millisecond responsiveness
+- Responsive multi-row layout for command capsule controls across compact screens and sidebars
+
+### Fixed
+- Fixed model list discrepancy where Google AI Studio displayed OpenRouter catalog entries
+- Fixed turn hang and perpetual thinking timer when submitting voice notes or encountering API failures
+- Fixed `base_url` contamination when switching from aggregator providers to native API endpoints
+- Fixed button collision and overlapping in CommandCapsule on narrow screens
+- Fixed icon differentiation between Model Switcher and New Chat buttons
+- Fixed auto-approve permission bypass for file operations and workspace editing
+
 ## [1.0.0] - 2026-09-18
 
 ### Added

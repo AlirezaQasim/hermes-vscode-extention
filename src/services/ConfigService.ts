@@ -24,6 +24,7 @@ export interface ModelConfigData {
         provider: string;
         model: string;
         baseUrl: string;
+        reasoningEffort: string;
     };
     providers: ModelProviderInfo[];
 }
@@ -42,12 +43,84 @@ export const FALLBACK_PROVIDERS: Array<{ id: string; name: string; envVar: strin
     { id: 'xai-oauth', name: 'xAI Grok OAuth (SuperGrok / Premium+ subscription)', envVar: '', baseUrl: '' },
     { id: 'nvidia', name: 'NVIDIA NIM (Nemotron models via build.nvidia.com)', envVar: 'NVIDIA_API_KEY', baseUrl: 'https://integrate.api.nvidia.com/v1' },
     { id: 'copilot', name: 'GitHub Copilot (Uses GITHUB_TOKEN or gh auth token)', envVar: 'GITHUB_TOKEN', baseUrl: '' },
-    { id: 'gemini', name: 'Google AI Studio (Native Gemini API)', envVar: 'GOOGLE_API_KEY', baseUrl: 'https://generativelanguage.googleapis.com/v1beta' },
+    { id: 'gemini', name: 'Google AI Studio (Native Gemini API)', envVar: 'GOOGLE_API_KEY', baseUrl: '' },
     { id: 'deepseek', name: 'DeepSeek (V3, R1, coder, direct API)', envVar: 'DEEPSEEK_API_KEY', baseUrl: 'https://api.deepseek.com' },
     { id: 'xai', name: 'xAI Grok (Direct API)', envVar: 'XAI_API_KEY', baseUrl: 'https://api.x.ai/v1' },
     { id: 'ollama', name: 'Ollama (Local Models at localhost:11434)', envVar: '', baseUrl: 'http://localhost:11434/v1' },
     { id: 'groq', name: 'Groq (Ultra-Fast Inference)', envVar: 'GROQ_API_KEY', baseUrl: 'https://api.groq.com/openai/v1' }
 ];
+
+// Mapping from Hermes provider names to models.dev registry IDs
+const PROVIDER_TO_MODELS_DEV: Record<string, string> = {
+    openrouter: 'openrouter',
+    novita: 'novita-ai',
+    anthropic: 'anthropic',
+    openai: 'openai',
+    'openai-api': 'openai',
+    'openai-codex': 'openai',
+    zai: 'zai',
+    kimi: 'kimi-for-coding',
+    'kimi-coding': 'kimi-for-coding',
+    moonshot: 'kimi-for-coding',
+    stepfun: 'stepfun',
+    'kimi-coding-cn': 'kimi-for-coding',
+    minimax: 'minimax',
+    'minimax-oauth': 'minimax',
+    'minimax-cn': 'minimax-cn',
+    deepseek: 'deepseek',
+    alibaba: 'alibaba',
+    'qwen-oauth': 'alibaba',
+    'ai-gateway': 'vercel',
+    'opencode-zen': 'opencode',
+    'opencode-go': 'opencode-go',
+    kilocode: 'kilo',
+    fireworks: 'fireworks-ai',
+    huggingface: 'huggingface',
+    gemini: 'google',
+    google: 'google',
+    xai: 'xai',
+    'xai-oauth': 'xai',
+    xiaomi: 'xiaomi',
+    nvidia: 'nvidia',
+    'meta-ai': 'meta',
+    meta: 'meta',
+    groq: 'groq',
+    mistral: 'mistral',
+    togetherai: 'togetherai',
+    perplexity: 'perplexity',
+    cohere: 'cohere',
+    'ollama-cloud': 'ollama-cloud'
+};
+
+const NOISE_PATTERNS = /-tts\b|embedding|live-|-(preview|exp)-\d{2,4}[-_]|-image\b|-image-preview\b|-customtools\b/i;
+
+const GOOGLE_HIDDEN_MODELS = new Set([
+    'gemma-4-31b-it', 'gemma-4-26b-it', 'gemma-4-26b-a4b-it',
+    'gemma-3-1b', 'gemma-3-1b-it', 'gemma-3-2b', 'gemma-3-2b-it',
+    'gemma-3-4b', 'gemma-3-4b-it', 'gemma-3-12b', 'gemma-3-12b-it',
+    'gemma-3-27b', 'gemma-3-27b-it',
+    'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash-8b',
+    'gemini-2.0-flash', 'gemini-2.0-flash-lite'
+]);
+
+const CURATED_STATIC_MODELS: Record<string, string[]> = {
+    gemini: [
+        'gemini-3.8-flash', 'gemini-4-hydrogen', 'gemini-4-carbon', 'gemini-4-argon', 'gemini-3.7-flash',
+        'gemini-3.1-pro-preview', 'gemini-3-pro-preview', 'gemini-3.6-flash', 'gemini-3.1-flash-lite-preview'
+    ],
+    anthropic: [
+        'claude-fable-5-2', 'claude-fable-5.1', 'claude-fable-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5',
+        'claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-opus-4-5-20251101',
+        'claude-sonnet-4-5-20250929', 'claude-opus-4-20250514', 'claude-sonnet-4-20250514', 'claude-haiku-4-5-20251001'
+    ],
+    deepseek: ['deepseek-flash', 'deepseek-v4-pro'],
+    zai: ['glm-5.3', 'glm-5.3-flash', 'glm-5.2', 'glm-5.1', 'glm-5', 'glm-5v-turbo', 'glm-5-turbo', 'glm-4.7', 'glm-4.5', 'glm-4.5-flash'],
+    nvidia: [
+        'nvidia/nemotron-3.5-super-vl-120b-a12b', 'nvidia/nemotron-3-ultra-550b-a55b', 'nvidia/nemotron-3-super-120b-a12b',
+        'nvidia/nemotron-3.5-lightning-30b-a3b', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
+        'z-ai/glm-5.3', 'z-ai/glm-5.2', 'moonshotai/kimi-k2.6', 'minimaxai/minimax-m3'
+    ]
+};
 
 export class ConfigService extends EventEmitter {
     private logger: Logger;
@@ -76,7 +149,7 @@ export class ConfigService extends EventEmitter {
             this.fileWatcher = fs.watch(this.hermesHome, (eventType, filename) => {
                 if (!filename) return;
                 const base = filename.toString().toLowerCase();
-                if (base === 'config.yaml' || base === '.env' || base === 'provider_models_cache.json') {
+                if (base === 'config.yaml' || base === '.env' || base === 'provider_models_cache.json' || base === 'models_dev_cache.json') {
                     this.onFileChanged(filename.toString());
                 }
             });
@@ -155,11 +228,25 @@ export class ConfigService extends EventEmitter {
         const config = await this.readConfig();
 
         const modelSection = config['model'] || {};
+        const agentSection = config['agent'] || {};
         const curProvider = modelSection['provider'] || 'openrouter';
         const curModel = modelSection['default'] || '';
         const curBaseUrl = modelSection['base_url'] || '';
+        const curReasoningEffort = agentSection['reasoning_effort'] || 'high';
 
-        // Read provider cache if available
+        // 1. Read authoritative models.dev registry cache if available
+        let modelsDevCache: Record<string, any> = {};
+        const modelsDevFile = path.join(this.hermesHome, 'models_dev_cache.json');
+        if (fs.existsSync(modelsDevFile)) {
+            try {
+                const devContent = await fs.promises.readFile(modelsDevFile, 'utf8');
+                modelsDevCache = JSON.parse(devContent);
+            } catch {
+                // Ignore parse errors
+            }
+        }
+
+        // 2. Read secondary provider cache if available
         let diskCachedProviders: Record<string, any> = {};
         const providerCacheFile = path.join(this.hermesHome, 'provider_models_cache.json');
         if (fs.existsSync(providerCacheFile)) {
@@ -185,15 +272,54 @@ export class ConfigService extends EventEmitter {
             const keyMasked = rawKey ? this.maskKey(rawKey) : (pid === 'ollama' ? 'Local' : (pid.includes('oauth') ? 'OAuth / CLI' : ''));
 
             let modelsList: Array<{ id: string; name: string; tag: string }> = [];
-            const cachedModels = diskCachedProviders[pid]?.models;
 
-            if (Array.isArray(cachedModels) && cachedModels.length > 0) {
-                modelsList = cachedModels.map((mid: string) => ({
-                    id: mid,
-                    name: this.cleanModelName(mid),
-                    tag: this.categorizeModel(mid)
-                }));
-            } else {
+            // A. Check models.dev authoritative cache first
+            const mdevKey = PROVIDER_TO_MODELS_DEV[pid] || pid;
+            const mdevProviderData = modelsDevCache[mdevKey];
+            if (mdevProviderData && typeof mdevProviderData === 'object' && mdevProviderData.models) {
+                const rawModels = mdevProviderData.models as Record<string, any>;
+                const agenticIds = Object.entries(rawModels)
+                    .filter(([mid, entry]) => {
+                        if (!entry || entry.tool_call !== true) return false;
+                        if (NOISE_PATTERNS.test(mid)) return false;
+                        if ((pid === 'gemini' || pid === 'google') && GOOGLE_HIDDEN_MODELS.has(mid.toLowerCase())) return false;
+                        return true;
+                    })
+                    .map(([mid]) => mid);
+
+                const curated = CURATED_STATIC_MODELS[pid] || [];
+                const mergedMap = new Map<string, string>();
+                for (const mid of [...agenticIds, ...curated]) {
+                    const lk = mid.toLowerCase();
+                    if (!mergedMap.has(lk)) {
+                        mergedMap.set(lk, mid);
+                    }
+                }
+
+                const resolvedIds = Array.from(mergedMap.values());
+                if (resolvedIds.length > 0) {
+                    modelsList = resolvedIds.map((mid) => ({
+                        id: mid,
+                        name: this.cleanModelName(mid),
+                        tag: this.categorizeModel(mid)
+                    }));
+                }
+            }
+
+            // B. Fallback to secondary provider_models_cache.json if not resolved from models.dev
+            if (modelsList.length === 0) {
+                const cachedModels = diskCachedProviders[pid]?.models;
+                if (Array.isArray(cachedModels) && cachedModels.length > 0) {
+                    modelsList = cachedModels.map((mid: string) => ({
+                        id: mid,
+                        name: this.cleanModelName(mid),
+                        tag: this.categorizeModel(mid)
+                    }));
+                }
+            }
+
+            // C. Fallback to hardcoded curated default models
+            if (modelsList.length === 0) {
                 modelsList = this.getDefaultModelsForProvider(pid);
             }
 
@@ -213,13 +339,40 @@ export class ConfigService extends EventEmitter {
             current: {
                 provider: curProvider,
                 model: curModel,
-                baseUrl: curBaseUrl
+                baseUrl: curBaseUrl,
+                reasoningEffort: curReasoningEffort
             },
             providers: providersOut
         };
     }
 
-    public async saveModelConfig(provider: string, model: string, apiKey?: string, baseUrl?: string): Promise<boolean> {
+    public async saveReasoningEffort(effort: string): Promise<boolean> {
+        try {
+            let content = '';
+            if (fs.existsSync(this.configPath)) {
+                content = await fs.promises.readFile(this.configPath, 'utf8');
+            } else {
+                content = "agent:\n  reasoning_effort: high\n";
+            }
+
+            if (/^\s*reasoning_effort:\s*.*$/m.test(content)) {
+                content = content.replace(/^(\s*reasoning_effort:\s*).*$/m, `$1${effort}`);
+            } else if (/^agent:\s*$/m.test(content)) {
+                content = content.replace(/^(agent:\s*)$/m, `$1\n  reasoning_effort: ${effort}`);
+            } else {
+                content += `\nagent:\n  reasoning_effort: ${effort}\n`;
+            }
+
+            await fs.promises.writeFile(this.configPath, content, 'utf8');
+            this.logger.info(`Updated reasoning_effort in config.yaml to '${effort}'`);
+            return true;
+        } catch (error) {
+            this.logger.error('Failed to save reasoning_effort to config.yaml', error);
+            return false;
+        }
+    }
+
+    public async saveModelConfig(provider: string, model: string, apiKey?: string, baseUrl?: string, reasoningEffort?: string): Promise<boolean> {
         try {
             // 1. Update config.yaml
             let content = '';
@@ -241,11 +394,23 @@ export class ConfigService extends EventEmitter {
                 content = content.replace(/^(model:\s*)$/m, `$1\n  provider: ${provider}`);
             }
 
-            if (baseUrl && baseUrl !== '-') {
+            if (baseUrl && baseUrl !== '-' && baseUrl.trim() !== '') {
                 if (/^\s*base_url:\s*.*$/m.test(content)) {
-                    content = content.replace(/^(\s*base_url:\s*).*$/m, `$1${baseUrl}`);
+                    content = content.replace(/^(\s*base_url:\s*).*$/m, `$1${baseUrl.trim()}`);
                 } else {
-                    content = content.replace(/^(\s*provider:\s*.*)$/m, `$1\n  base_url: ${baseUrl}`);
+                    content = content.replace(/^(\s*provider:\s*.*)$/m, `$1\n  base_url: ${baseUrl.trim()}`);
+                }
+            } else {
+                content = content.replace(/^\s*base_url:\s*.*$\r?\n?/m, '');
+            }
+
+            if (reasoningEffort && reasoningEffort !== '-') {
+                if (/^\s*reasoning_effort:\s*.*$/m.test(content)) {
+                    content = content.replace(/^(\s*reasoning_effort:\s*).*$/m, `$1${reasoningEffort}`);
+                } else if (/^agent:\s*$/m.test(content)) {
+                    content = content.replace(/^(agent:\s*)$/m, `$1\n  reasoning_effort: ${reasoningEffort}`);
+                } else {
+                    content += `\nagent:\n  reasoning_effort: ${reasoningEffort}\n`;
                 }
             }
 

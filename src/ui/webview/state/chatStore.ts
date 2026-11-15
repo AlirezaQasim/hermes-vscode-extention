@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import type { ChatMessage } from '../types';
+import type { ChatMessage, AttachmentItem, ProjectFolderItem } from '../types';
 import { postToHost } from './uiStore';
 
 export const messages = writable<ChatMessage[]>([]);
@@ -7,11 +7,40 @@ export const currentSessionId = writable<string | null>(null);
 export const sessionTitle = writable<string>('');
 export const tokenUsage = writable<{ prompt: number; completion: number; total: number } | null>(null);
 export const isStreaming = writable<boolean>(false);
+export const attachmentsStore = writable<AttachmentItem[]>([]);
+export const projectFoldersStore = writable<ProjectFolderItem[]>([]);
+export const currentCwdStore = writable<string>('');
 
-export function sendUserPrompt(text: string): void {
-    if (!text || !text.trim()) return;
+export function sendUserPrompt(text: string, attachments?: AttachmentItem[]): void {
+    if ((!text || !text.trim()) && (!attachments || attachments.length === 0)) return;
     isStreaming.set(true);
-    postToHost({ type: 'sendPrompt', text: text.trim() });
+    if (attachments && attachments.length > 0) {
+        postToHost({ type: 'sendPrompt', text: text.trim(), attachments });
+    } else {
+        postToHost({ type: 'sendPrompt', text: text.trim() });
+    }
+    attachmentsStore.set([]);
+}
+
+export function pickAttachment(): void {
+    postToHost({ type: 'pickAttachment' });
+}
+
+export function requestProjectFolders(): void {
+    postToHost({ type: 'getProjectFolders' });
+}
+
+export function setCwd(cwd: string): void {
+    currentCwdStore.set(cwd);
+    postToHost({ type: 'setCwd', cwd });
+}
+
+export function addAttachment(item: AttachmentItem): void {
+    attachmentsStore.update(list => [...list, item]);
+}
+
+export function removeAttachment(id: string): void {
+    attachmentsStore.update(list => list.filter(item => item.id !== id));
 }
 
 export function cancelStreaming(): void {
@@ -24,10 +53,12 @@ export function startNewSession(): void {
     currentSessionId.set(null);
     sessionTitle.set('');
     isStreaming.set(false);
+    attachmentsStore.set([]);
     postToHost({ type: 'newSession' });
 }
 
 export function clearMessages(): void {
     messages.set([]);
+    attachmentsStore.set([]);
     postToHost({ type: 'clearChat' });
 }

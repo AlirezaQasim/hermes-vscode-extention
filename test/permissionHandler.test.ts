@@ -29,6 +29,27 @@ describe('PermissionHandler', () => {
     expect(result).toBe('allow');
   });
 
+  it('should auto-approve ACP structured options with allow_once', async () => {
+    permissionHandler.setAutoApprove(true);
+    
+    const request = {
+      sessionId: 'session-1',
+      id: 42,
+      toolCall: {
+        title: 'Approve edit: /test.txt',
+        kind: 'edit',
+        rawInput: { tool: 'write_file', arguments: { path: '/test.txt' } }
+      },
+      options: [
+        { optionId: 'allow_once', kind: 'allow_once', name: 'Allow edit' },
+        { optionId: 'deny', kind: 'reject_once', name: 'Deny' }
+      ]
+    };
+    
+    const result = await permissionHandler.handleRequest(request);
+    expect(result).toBe('allow_once');
+  });
+
   it('should return deny for unhandled requests when not auto-approve', async () => {
     permissionHandler.setAutoApprove(false);
     

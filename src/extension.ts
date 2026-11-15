@@ -63,6 +63,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const fileSystemHandler = new FileSystemHandler(logger);
     const terminalHandler = new TerminalHandler(logger);
 
+    const initialAutoApprove = config.get('autoApprovePermissions', false);
+    permissionHandler.setAutoApprove(initialAutoApprove);
+    statusBar.setAutoApprove(initialAutoApprove);
+
     const configService = new ConfigService(logger);
     const sessionService = new SessionService(logger);
     const skillService = new SkillService(logger);
@@ -83,12 +87,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const connectionsProvider = new ConnectionsViewProvider(logger);
 
     vscode.window.registerWebviewViewProvider('hermes.chat', chatProvider);
-    vscode.window.registerTreeDataProvider('hermes.sessions', sessionsProvider);
-    vscode.window.registerTreeDataProvider('hermes.skills', skillsProvider);
-    vscode.window.registerTreeDataProvider('hermes.tools', toolsProvider);
-    vscode.window.registerWebviewViewProvider('hermes.setup', setupProvider);
-    vscode.window.registerTreeDataProvider('hermes.config', configProvider);
-    vscode.window.registerTreeDataProvider('hermes.connections', connectionsProvider);
 
     extensionContext = {
         client: null,
@@ -179,6 +177,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.workspace.onDidChangeConfiguration(async (e) => {
             if (e.affectsConfiguration('hermes')) {
                 config.reload();
+                if (e.affectsConfiguration('hermes.autoApprovePermissions')) {
+                    const autoApprove = config.get('autoApprovePermissions', false);
+                    permissionHandler.setAutoApprove(autoApprove);
+                    statusBar.setAutoApprove(autoApprove);
+                    if (extensionContext?.client) {
+                        extensionContext.client.setAutoApprove(autoApprove);
+                        const curSession = extensionContext.client.getCurrentSessionId();
+                        if (curSession) {
+                            extensionContext.client.setSessionMode(curSession, autoApprove ? 'accept_edits' : 'default').catch(() => {});
+                        }
+                    }
+                }
                 if (extensionContext?.isConnected) {
                     await reconnectIfNeeded();
                 }
@@ -256,6 +266,48 @@ async function connectToHermes(): Promise<void> {
 
         client.on('sessionUpdate', (update) => {
             handleSessionUpdate(update);
+        });
+
+        client.on('thoughtChunk', (text) => {
+            ctx.chatProvider.addThoughtChunk(text);
+            const chatStream = ctx.chatParticipantStream || currentChatStream;
+            if (chatStream) {
+                chatStream.markdown(`_Thinking: ${text}_`);
+            }
+        });
+
+        client.on('messageChunk', (text) => {
+            ctx.chatProvider.addAgentChunk(text);
+            const chatStream = ctx.chatParticipantStream || currentChatStream;
+            if (chatStream) {
+                chatStream.markdown(text);
+            }
+        });
+
+        client.on('toolCallStart', (toolCall) => {
+            ctx.chatProvider.addToolCall(toolCall);
+            const chatStream = ctx.chatParticipantStream || currentChatStream;
+            if (chatStream) {
+                chatStream.markdown(`🔧 **Tool: ${toolCall.title || toolCall.name}**\n\`\`\`json\n${JSON.stringify(toolCall.args, null, 2)}\n\`\`\``);
+            }
+        });
+
+        client.on('toolCallUpdate', (toolUpdate) => {
+            ctx.chatProvider.updateToolCall(toolUpdate);
+            const chatStream = ctx.chatParticipantStream || currentChatStream;
+            if (chatStream && toolUpdate.status === 'done') {
+                chatStream.markdown(`✅ **Tool completed**${toolUpdate.result ? `\n\`\`\`\n${toolUpdate.result}\n\`\`\`` : ''}${toolUpdate.error ? `\n❌ ${toolUpdate.error}` : ''}`);
+            }
+        });
+
+        client.on('planUpdate', (plan) => {
+            ctx.chatProvider.addPlan(plan);
+        });
+
+        const autoApprove = ctx.config.get('autoApprovePermissions', false);
+        client.setAutoApprove(autoApprove);
+        client.setPermissionRequestHandler(async (request) => {
+            return await ctx.permissionHandler.handleRequest(request);
         });
 
         client.on('permissionRequest', (request) => {
@@ -367,6 +419,7 @@ async function loadSession(sessionId: string): Promise<void> {
                 ctx.logger.warn(`ACP session/load warning for ${sessionId}:`, acpErr);
             }
         }
+        ctx.chatProvider.resetAgentActivity();
         ctx.statusBar.setConnected();
         vscode.commands.executeCommand('hermes.chat.focus');
     } catch (error) {
@@ -500,6 +553,13 @@ async function toggleAutoApprove(): Promise<void> {
     await ctx.config.update('autoApprovePermissions', newValue);
     ctx.permissionHandler.setAutoApprove(newValue);
     ctx.statusBar.setAutoApprove(newValue);
+    if (ctx.client) {
+        ctx.client.setAutoApprove(newValue);
+        const curSession = ctx.client.getCurrentSessionId();
+        if (curSession) {
+            ctx.client.setSessionMode(curSession, newValue ? 'accept_edits' : 'default').catch(() => {});
+        }
+    }
     vscode.window.showInformationMessage(`Auto-approve ${newValue ? 'enabled' : 'disabled'}`);
 }
 
@@ -648,48 +708,26 @@ function handleSessionUpdate(update: any): void {
     const ctx = getExtensionContext();
     if (!ctx) return;
 
-    // Route to chat participant stream if active
-    const chatStream = ctx.chatParticipantStream || currentChatStream;
-    
-    switch (update.kind) {
-        case 'agent_message_chunk':
-            ctx.chatProvider.addAgentChunk(update.content);
-            if (chatStream) {
-                chatStream.markdown(update.content);
-            }
-            break;
-        case 'user_message_chunk':
-            ctx.chatProvider.addUserChunk(update.content);
-            break;
-        case 'thought_chunk':
-            ctx.chatProvider.addThoughtChunk(update.content);
-            if (chatStream) {
-                chatStream.markdown(`_Thinking: ${update.content}_`);
-            }
-            break;
-        case 'tool_call':
-            ctx.chatProvider.addToolCall(update);
-            if (chatStream) {
-                chatStream.markdown(`🔧 **Tool: ${update.name}**\n\`\`\`json\n${JSON.stringify(update.args, null, 2)}\n\`\`\``);
-            }
-            break;
-        case 'tool_call_update':
-            ctx.chatProvider.updateToolCall(update);
-            if (chatStream && update.status === 'done') {
-                chatStream.markdown(`✅ **Tool completed**${update.result ? `\n\`\`\`\n${update.result}\n\`\`\`` : ''}${update.error ? `\n❌ ${update.error}` : ''}`);
-            }
-            break;
-        case 'plan':
-            ctx.chatProvider.addPlan(update.content);
-            if (chatStream) {
-                chatStream.markdown(`📋 **Plan:**\n${update.content}`);
-            }
-            break;
+    const payload = update?.update || update;
+    const kind = payload?.sessionUpdate || payload?.session_update || payload?.kind || payload?.type;
+    const rawContent = payload?.content;
+    let contentText = '';
+    if (typeof rawContent === 'string') {
+        contentText = rawContent;
+    } else if (rawContent?.text) {
+        contentText = rawContent.text;
+    } else if (Array.isArray(rawContent)) {
+        contentText = rawContent.map((c: any) => c.text || c.content?.text || '').join('');
+    } else if (rawContent) {
+        contentText = String(rawContent);
+    }
+
+    switch (kind) {
         case 'available_commands_update':
-            ctx.chatProvider.updateCommands(update.commands);
+            ctx.chatProvider.updateCommands(payload.commands);
             break;
         case 'mode_change':
-            ctx.statusBar.setMode(update.mode);
+            ctx.statusBar.setMode(payload.mode);
             break;
     }
 }

@@ -67,6 +67,7 @@ export function closeModal(): void {
 }
 
 export const toastStore = writable<string | null>(null);
+export const voiceTranscriptStore = writable<{ text: string; timestamp: number } | null>(null);
 
 let toastTimer: any = null;
 export function showToast(message: string, duration: number = 2800): void {

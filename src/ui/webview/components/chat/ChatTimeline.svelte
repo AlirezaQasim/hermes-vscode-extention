@@ -71,6 +71,7 @@
 
     function isFailedTurn(msg) {
         if (msg.displayKind === 'failed_turn') return true;
+        if (msg.errorMessage || msg.errorCode) return true;
         if (typeof msg.content === 'string') {
             const trimmed = msg.content.trim();
             if (trimmed.includes('Your request was not processed') || trimmed.includes('This turn did not complete')) {
@@ -144,6 +145,23 @@
                 <div class="user-bubble-header">
                     <span class="user-label">شما</span>
                 </div>
+                {#if msg.attachments && msg.attachments.length > 0}
+                    <div class="message-attachments-row">
+                        {#each msg.attachments as att}
+                            <div class="message-attachment-pill">
+                                {#if att.type === 'image'}
+                                    <span class="attachment-icon">🖼️</span>
+                                    {#if att.data}
+                                        <img src="data:{att.mimeType || 'image/png'};base64,{att.data}" alt={att.name} class="attachment-thumb" />
+                                    {/if}
+                                {:else}
+                                    <span class="attachment-icon">📄</span>
+                                {/if}
+                                <span class="attachment-name">{att.name}</span>
+                            </div>
+                        {/each}
+                    </div>
+                {/if}
                 <div class="user-bubble-content" dir="auto">
                     {@html renderMarkdown(msg.content)}
                 </div>
@@ -165,11 +183,53 @@
             <!-- Failed turn notice styled as informative error card -->
             <div class="message role-failed-turn" data-id={msg.id}>
                 <div class="failed-turn-banner">
-                    <span class="failed-turn-icon">⚠️</span>
+                    <span class="failed-turn-icon">
+                        {#if msg.errorCode === 'rate_limit' || (msg.errorMessage && msg.errorMessage.includes('429'))}
+                            ⏳
+                        {:else if msg.errorCode === 'auth_error' || (msg.errorMessage && (msg.errorMessage.includes('401') || msg.errorMessage.includes('auth')))}
+                            🔑
+                        {:else}
+                            ⚠️
+                        {/if}
+                    </span>
                     <div class="failed-turn-body">
-                        <div class="failed-turn-title">پاسخ از سمت مدل هوش مصنوعی دریافت نشد</div>
+                        <div class="failed-turn-title">
+                            {#if msg.errorCode === 'rate_limit' || (msg.errorMessage && msg.errorMessage.includes('429'))}
+                                اتمام سهمیه روزانه یا محدودیت تعداد درخواست (Rate Limit 429)
+                            {:else if msg.errorCode === 'auth_error' || (msg.errorMessage && (msg.errorMessage.includes('401') || msg.errorMessage.includes('auth')))}
+                                خطای احراز هویت یا کلید API نامعتبر (401 Unauthorized)
+                            {:else if msg.errorCode === 'geo_restriction' || (msg.errorMessage && msg.errorMessage.includes('403'))}
+                                خطای محدودیت منطقه‌ای یا تحریم سرویس‌دهنده (403 Forbidden)
+                            {:else if (msg.errorMessage && msg.errorMessage.includes('404'))}
+                                مدل درخواستی یافت نشد (404 Model Not Found)
+                            {:else}
+                                پاسخ از سمت مدل هوش مصنوعی دریافت نشد
+                            {/if}
+                        </div>
                         <div class="failed-turn-desc">
-                            ارتباط با مدل با خطا مواجه شد. در صورت استفاده از OpenRouter، برخی مدل‌ها (نظیر <code>inkling-2-small</code>) دارای <strong>محدودیت منطقه‌ای (Geo-restriction 403)</strong> هستند یا سرویس‌دهنده آنها تغییر کرده است.
+                            {#if msg.errorCode === 'rate_limit' || (msg.errorMessage && msg.errorMessage.includes('429'))}
+                                <div style="margin-bottom: 6px;">
+                                    سهمیه درخواست‌های مدل فعلی در ارائه‌دهنده سرویس به اتمام رسیده است. برای ادامه گفتگو می‌توانید از تب مدل‌ها، مدل دیگری انتخاب کنید یا سشن جدیدی باز نمایید:
+                                </div>
+                            {:else if msg.errorCode === 'auth_error' || (msg.errorMessage && (msg.errorMessage.includes('401') || msg.errorMessage.includes('auth')))}
+                                <div style="margin-bottom: 6px;">
+                                    کلید API وارد شده معتبر نبوده یا اجازه دسترسی به این مدل را ندارد:
+                                </div>
+                            {:else}
+                                <div style="margin-bottom: 6px;">
+                                    ارتباط با مدل با خطا مواجه شد. پیام دریافتی از ایجنت و سرویس‌دهنده:
+                                </div>
+                            {/if}
+
+                            {#if msg.errorMessage}
+                                <div class="failed-turn-raw-error">
+                                    <code>{msg.errorMessage}</code>
+                                </div>
+                            {:else if msg.content && msg.content !== 'Your request was not processed. Send it again if you still want me to carry it out.'}
+                                <div class="failed-turn-raw-error">
+                                    <code>{msg.content}</code>
+                                </div>
+                            {/if}
                         </div>
                         <div class="failed-turn-actions">
                             <button type="button" class="btn-change-model" on:click={() => $activeTab = 'models'}>
@@ -266,20 +326,28 @@
                                         {#if tc.status === 'done'}
                                             ✓
                                         {:else if tc.status === 'running'}
-                                            ↻
+                                            <span class="spinning">↻</span>
                                         {:else}
                                             ✕
                                         {/if}
                                     </div>
                                     <div class="timeline-body">
                                         <div class="timeline-title-row">
-                                            <span class="step-title">{tc.name || 'Tool Execution'}</span>
-                                            <span class="step-time">{tc.duration ? tc.duration + 'ms' : (tc.status === 'running' ? 'در حال اجرا...' : '')}</span>
+                                            <span class="step-title">{tc.title || tc.name || 'Tool Execution'}</span>
+                                            <span class="step-status-badge {tc.status}">
+                                                {tc.status === 'running' ? 'در حال اجرا...' : tc.status === 'done' ? '✓ تکمیل شد' : '✕ خطا'}
+                                            </span>
                                         </div>
                                         {#if tc.arguments || tc.args}
                                             <div class="step-meta">
                                                 {typeof (tc.arguments || tc.args) === 'string' ? (tc.arguments || tc.args) : JSON.stringify(tc.arguments || tc.args)}
                                             </div>
+                                        {/if}
+                                        {#if tc.result}
+                                            <details class="tool-result-details">
+                                                <summary class="tool-result-summary">مشاهده خروجی / Result</summary>
+                                                <pre class="tool-result-pre"><code>{typeof tc.result === 'object' ? JSON.stringify(tc.result, null, 2) : tc.result}</code></pre>
+                                            </details>
                                         {/if}
                                     </div>
                                 </div>

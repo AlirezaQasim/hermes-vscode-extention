@@ -1,16 +1,27 @@
 import * as vscode from 'vscode';
 import type { Logger } from '../utils/logger';
 
-interface PermissionRequest {
+export interface ACPPermissionOption {
+    optionId: string;
+    kind: string;
+    name: string;
+}
+
+export interface PermissionRequest {
+    id?: number | string;
     sessionId: string;
-    requestId: string;
+    requestId?: string;
     toolCall: {
-        name: string;
-        args: any;
-        kind: string;
+        id?: string;
+        toolCallId?: string;
+        name?: string;
+        args?: any;
+        kind?: string;
         title?: string;
+        content?: any[];
+        rawInput?: any;
     };
-    options: string[];
+    options: Array<ACPPermissionOption | string>;
 }
 
 export class PermissionHandler {
@@ -27,43 +38,95 @@ export class PermissionHandler {
         this.logger.info(`Auto-approve ${enabled ? 'enabled' : 'disabled'}`);
     }
 
-    async handleRequest(request: PermissionRequest): Promise<string> {
-        this.pendingRequests.set(request.requestId, request);
+    isAutoApprove(): boolean {
+        return this.autoApprove || vscode.workspace.getConfiguration('hermes').get<boolean>('autoApprovePermissions', false);
+    }
 
-        if (this.autoApprove) {
-            this.logger.info('Auto-approving permission request', request.requestId);
-            this.pendingRequests.delete(request.requestId);
-            return 'allow';
+    async handleRequest(request: PermissionRequest): Promise<string> {
+        const reqKey = String(request.requestId || request.id || `perm-${Date.now()}`);
+        this.pendingRequests.set(reqKey, request);
+
+        if (this.isAutoApprove()) {
+            this.logger.info('Auto-approving permission request', reqKey);
+            this.pendingRequests.delete(reqKey);
+
+            if (request.options && request.options.length > 0) {
+                const first = request.options[0];
+                if (typeof first === 'string') {
+                    const allowStr = (request.options as string[]).find(o => o.toLowerCase().includes('allow')) || first;
+                    return allowStr;
+                } else {
+                    const allowOpt = (request.options as ACPPermissionOption[]).find(o =>
+                        (o.kind && o.kind.startsWith('allow')) ||
+                        (o.optionId && o.optionId.startsWith('allow'))
+                    ) || request.options[0];
+                    return (allowOpt as ACPPermissionOption).optionId || 'allow_once';
+                }
+            }
+            return 'allow_once';
         }
 
-        const toolCall = request.toolCall;
-        const message = `Allow ${toolCall.kind} operation: ${toolCall.name}?`;
+        const toolCall = request.toolCall || ({} as any);
+        const title = toolCall.title || toolCall.name || toolCall.kind || 'Tool Operation';
+        const message = `Hermes Agent Permission: ${title}`;
         const detail = this.formatToolCallDetail(toolCall);
 
-        const buttons = request.options.map(opt => ({
-            title: opt.charAt(0).toUpperCase() + opt.slice(1),
-            value: opt
-        }));
+        const buttons: Array<{ title: string; value: string }> = (request.options || []).map((opt: any) => {
+            if (typeof opt === 'string') {
+                return {
+                    title: opt.charAt(0).toUpperCase() + opt.slice(1).replace(/_/g, ' '),
+                    value: opt
+                };
+            }
+            return {
+                title: opt.name || opt.title || (opt.optionId ? opt.optionId.charAt(0).toUpperCase() + opt.optionId.slice(1).replace(/_/g, ' ') : 'Allow'),
+                value: opt.optionId || opt.id || 'allow_once'
+            };
+        });
 
-        const selected = await vscode.window.showInformationMessage(message, { detail, modal: true }, ...buttons);
-        this.pendingRequests.delete(request.requestId);
-        return selected?.value || 'deny';
+        if (buttons.length === 0) {
+            buttons.push(
+                { title: 'Allow', value: 'allow_once' },
+                { title: 'Deny', value: 'deny' }
+            );
+        }
+
+        const selectedTitle = await vscode.window.showInformationMessage(
+            message,
+            { detail, modal: false },
+            ...buttons.map(b => b.title)
+        );
+
+        this.pendingRequests.delete(reqKey);
+        const chosen = buttons.find(b => b.title === selectedTitle);
+        return chosen ? chosen.value : 'deny';
     }
 
     private formatToolCallDetail(toolCall: any): string {
-        let detail = `**Tool:** ${toolCall.name}\n**Kind:** ${toolCall.kind}\n`;
-        
+        const parts: string[] = [];
+
         if (toolCall.title) {
-            detail += `**Title:** ${toolCall.title}\n`;
+            parts.push(`Action: ${toolCall.title}`);
+        } else if (toolCall.name) {
+            parts.push(`Tool: ${toolCall.name} (${toolCall.kind || 'tool'})`);
         }
 
-        try {
-            detail += `**Arguments:**\n\`\`\`json\n${JSON.stringify(toolCall.args, null, 2)}\n\`\`\``;
-        } catch {
-            detail += `**Arguments:** ${String(toolCall.args)}`;
+        const raw = toolCall.rawInput || toolCall.raw_input || toolCall.args;
+        if (raw) {
+            if (raw.tool) {
+                parts.push(`Tool: ${raw.tool}`);
+            }
+            if (raw.arguments?.path) {
+                parts.push(`Target: ${raw.arguments.path}`);
+            } else if (raw.path) {
+                parts.push(`Target: ${raw.path}`);
+            }
+            if (raw.command) {
+                parts.push(`Command: ${raw.command}`);
+            }
         }
 
-        return detail;
+        return parts.join('\n');
     }
 
     getPendingRequests(): PermissionRequest[] {

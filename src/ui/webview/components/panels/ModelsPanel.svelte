@@ -8,7 +8,9 @@
         apiKeyInput,
         isKeyVisible,
         baseUrlInput,
-        applyModelConfig
+        selectedReasoningEffort,
+        applyModelConfig,
+        applyReasoningEffort
     } from '../../state/modelStore';
     import { postToHost, autoApproveSetting, cwdSetting, agentActivity, showToast } from '../../state/uiStore';
     import { locale, t } from '../../i18n';
@@ -28,21 +30,37 @@
         return true;
     });
 
-    // Sync selected provider when modelConfig loads
+    // Sync selected provider and reasoning effort when modelConfig loads
     $: if (current.provider && !$selectedModelId) {
         $selectedProviderId = current.provider;
         $selectedModelId = current.model;
         $baseUrlInput = current.baseUrl || '';
+    }
+    $: if (current.reasoningEffort && current.reasoningEffort !== $selectedReasoningEffort) {
+        $selectedReasoningEffort = current.reasoningEffort;
     }
 
     function handleProviderChange(e) {
         const target = e.target;
         $selectedProviderId = target.value;
         const prov = providers.find((p) => p.id === target.value);
-        if (prov && prov.models.length > 0) {
-            $selectedModelId = prov.models[0]?.id || '';
+        if (prov) {
+            if (prov.models && prov.models.length > 0) {
+                $selectedModelId = prov.models[0]?.id || '';
+            }
+            if (target.value === current.provider && current.baseUrl && !current.baseUrl.includes('openrouter.ai')) {
+                $baseUrlInput = current.baseUrl;
+            } else {
+                $baseUrlInput = prov.baseUrl || '';
+            }
         }
         $apiKeyInput = '';
+    }
+
+    function handleReasoningEffortChange(e) {
+        const val = e.target.value;
+        $selectedReasoningEffort = val;
+        applyReasoningEffort(val);
     }
 
     function handleSaveConfig() {
@@ -51,7 +69,7 @@
             showToast('Please select or enter a model name');
             return;
         }
-        applyModelConfig($selectedProviderId, finalModel, $apiKeyInput, $baseUrlInput);
+        applyModelConfig($selectedProviderId, finalModel, $apiKeyInput, $baseUrlInput, $selectedReasoningEffort);
     }
 
     function handleReconnect() {
@@ -84,6 +102,11 @@
     function toggleLanguage() {
         $locale = $locale === 'fa' ? 'en' : 'fa';
     }
+
+    function handleRefreshModels() {
+        postToHost({ type: 'refreshData' });
+        showToast('🔄 در حال همگام‌سازی لحظه‌ای مدل‌ها و تنظیمات از هرمس...');
+    }
 </script>
 
 <div class="panel-container models-panel">
@@ -99,7 +122,7 @@
             {current.model ? current.model.split('/').pop()?.replace(/:free$/i, '') : 'None Selected'}
         </div>
         <div class="active-model-provider">
-            {t('models.operatorLabel')} {current.provider.toUpperCase()}
+            {t('models.operatorLabel')} {current.provider.toUpperCase()} · 🧠 استدلال: {current.reasoningEffort || $selectedReasoningEffort || 'high'}
         </div>
         <div class="active-model-status">✓ Ready</div>
     </div>
@@ -177,7 +200,16 @@
         <div class="form-group">
             <div class="label-row">
                 <label for="select-model">{t('models.modelLabel')}</label>
-                <span class="model-count-label">({availableModels.length} models)</span>
+                <div style="display: inline-flex; align-items: center; gap: 6px;">
+                    <span class="model-count-label">({availableModels.length} models)</span>
+                    <button 
+                        type="button" 
+                        class="btn-icon-subtle" 
+                        title="بروزرسانی زنده لیست مدل‌ها از هرمس" 
+                        on:click={handleRefreshModels}
+                        style="background: none; border: none; cursor: pointer; font-size: 12px; opacity: 0.85; padding: 0 2px;"
+                    >🔄</button>
+                </div>
             </div>
 
             <div class="filter-chips">
@@ -231,6 +263,31 @@
                     />
                 {/if}
             </div>
+        </div>
+
+        <!-- Step 4: Reasoning Effort (گزینه ۴۱ در CLI hermes model) -->
+        <div class="form-group" style="margin-top: 14px; border-top: 1px solid var(--hermes-border); padding-top: 12px;">
+            <div class="label-row">
+                <label for="select-reasoning">🧠 سطح تفکر و استدلال مدل (Reasoning Effort)</label>
+                <span class="key-status-tag" style="color: var(--hermes-gold);">گزینه ۴۱ CLI</span>
+            </div>
+            <select 
+                id="select-reasoning" 
+                class="form-select" 
+                value={$selectedReasoningEffort} 
+                on:change={handleReasoningEffortChange}
+            >
+                <option value="minimal">1. minimal (حداقل تفکر - سریع‌ترین پاسخ)</option>
+                <option value="low">2. low (تفکر کوتاه - وظایف سبک و سریع)</option>
+                <option value="medium">3. medium (استدلال متعادل)</option>
+                <option value="high">4. high (استدلال عمیق و استاندارد - توصیه شده)</option>
+                <option value="xhigh">5. xhigh (استدلال بسیار عمیق برای تحلیل پیچیده)</option>
+                <option value="max">6. max (حداکثر توان استدلال مدل)</option>
+                <option value="ultra">7. ultra (استدلال بی‌نهایت - سخت‌ترین الگوریتم‌ها)</option>
+                <option value="none">8. Disable reasoning (غیرفعال‌سازی تفکر / بدون تگ think)</option>
+                <option value="default">9. Skip / Default (حفظ تنظیمات پیش‌فرض سیستم)</option>
+            </select>
+            <span class="form-help">این گزینه مستقیماً به پروتکل ACP و تنظیمات config.yaml متصل است و عمق تفکر مدل‌های استدلالی (مانند Nemotron Ultra، DeepSeek R1، و Claude Thinking) را در پاسخ‌دهی کنترل می‌کند.</span>
         </div>
 
         <div class="form-actions">

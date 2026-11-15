@@ -75,7 +75,7 @@ async function buildAll() {
     // 5. Copy Utilities
     const utilsDir = './out/utils';
     fs.mkdirSync(utilsDir, { recursive: true });
-    ['hermesDb.py'].forEach(file => {
+    ['hermesDb.py', 'recordAudio.ps1'].forEach(file => {
         const src = `./src/utils/${file}`;
         const dest = `${utilsDir}/${file}`;
         if (fs.existsSync(src)) {

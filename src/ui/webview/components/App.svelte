@@ -1,10 +1,10 @@
 <script>
     import { onMount } from 'svelte';
-    import { activeTab, isConnected, autoApproveSetting, cwdSetting, agentActivity, modalStore, closeModal, toastStore, postToHost } from '../state/uiStore';
-    import { messages, currentSessionId, sessionTitle, tokenUsage, isStreaming } from '../state/chatStore';
+    import { activeTab, isConnected, autoApproveSetting, cwdSetting, agentActivity, modalStore, closeModal, toastStore, showToast, voiceTranscriptStore, postToHost } from '../state/uiStore';
+    import { messages, currentSessionId, sessionTitle, tokenUsage, isStreaming, attachmentsStore, addAttachment, projectFoldersStore, currentCwdStore } from '../state/chatStore';
     import { sessionsList } from '../state/sessionStore';
     import { skillsList } from '../state/skillStore';
-    import { modelConfigStore } from '../state/modelStore';
+    import { modelConfigStore, selectedReasoningEffort } from '../state/modelStore';
     import { locale, direction, t } from '../i18n';
 
     import HudNavbar from './hud/HudNavbar.svelte';
@@ -23,7 +23,12 @@
             // Fast-path for live millisecond token streaming
             if (data.type === 'streamChunk') {
                 $isStreaming = true;
-                if (data.agentActivity) $agentActivity = data.agentActivity;
+                if (data.agentActivity) {
+                $agentActivity = data.agentActivity;
+                if (data.agentActivity.state === 'idle') {
+                    $isStreaming = false;
+                }
+            }
                 messages.update((list) => {
                     let lastMsg = list[list.length - 1];
                     if (!lastMsg || lastMsg.role !== 'assistant') {
@@ -49,7 +54,12 @@
             // Real-time tool execution / skill creation
             if (data.type === 'toolCall') {
                 $isStreaming = true;
-                if (data.agentActivity) $agentActivity = data.agentActivity;
+                if (data.agentActivity) {
+                $agentActivity = data.agentActivity;
+                if (data.agentActivity.state === 'idle') {
+                    $isStreaming = false;
+                }
+            }
                 messages.update((list) => {
                     let lastMsg = list[list.length - 1];
                     if (!lastMsg || lastMsg.role !== 'assistant') {
@@ -71,7 +81,12 @@
             }
 
             if (data.type === 'toolCallUpdate') {
-                if (data.agentActivity) $agentActivity = data.agentActivity;
+                if (data.agentActivity) {
+                $agentActivity = data.agentActivity;
+                if (data.agentActivity.state === 'idle') {
+                    $isStreaming = false;
+                }
+            }
                 messages.update((list) => {
                     let lastMsg = list[list.length - 1];
                     if (lastMsg && lastMsg.toolCalls) {
@@ -89,14 +104,81 @@
 
             if (data.type === 'turnComplete') {
                 $isStreaming = false;
-                if (data.agentActivity) $agentActivity = data.agentActivity;
+                if (data.agentActivity) {
+                $agentActivity = data.agentActivity;
+                if (data.agentActivity.state === 'idle') {
+                    $isStreaming = false;
+                }
+            }
                 else $agentActivity = { state: 'idle', label: 'Local CLI' };
+                return;
+            }
+
+            if (data.type === 'attachmentsSelected') {
+                if (data.attachments && Array.isArray(data.attachments)) {
+                    attachmentsStore.update(list => [...list, ...data.attachments]);
+                }
+                return;
+            }
+
+            if (data.type === 'projectFolders') {
+                if (data.folders) {
+                    projectFoldersStore.set(data.folders);
+                }
+                if (data.currentCwd) {
+                    currentCwdStore.set(data.currentCwd);
+                }
+                return;
+            }
+
+            if (data.type === 'chatCleared') {
+                messages.set([]);
+                attachmentsStore.set([]);
+                isStreaming.set(false);
+                showToast('سابقه گفتگو پاکسازی شد');
+                return;
+            }
+
+            if (data.type === 'voiceRecordingState') {
+                if (data.state === 'recording') {
+                    showToast('🎙️ در حال ضبط صدا از میکروفون سیستم...');
+                } else if (data.state === 'processing') {
+                    showToast('⏳ در حال پردازش صوت...');
+                } else if (data.state === 'error') {
+                    showToast(`⚠️ ${data.error || 'خطا در ضبط صدا'}`);
+                }
+                return;
+            }
+
+            if (data.type === 'voiceAttachmentResult') {
+                if (data.attachment) {
+                    addAttachment(data.attachment);
+                    showToast('🎙️ فایل صوتی به گفتگو پیوست شد');
+                    if (data.warning) {
+                        setTimeout(() => showToast(data.warning), 1500);
+                    }
+                }
+                return;
+            }
+
+            if (data.type === 'voiceTranscriptionResult') {
+                if (data.success && data.text) {
+                    voiceTranscriptStore.set({ text: data.text, timestamp: Date.now() });
+                    showToast('🎙️ گفتار با موفقیت به متن تبدیل شد');
+                } else {
+                    showToast(`⚠️ خطا در تبدیل صوت: ${data.error || 'پاسخی دریافت نشد'}`);
+                }
                 return;
             }
 
             if (data.type !== 'update') return;
 
-            if (data.agentActivity) $agentActivity = data.agentActivity;
+            if (data.agentActivity) {
+                $agentActivity = data.agentActivity;
+                if (data.agentActivity.state === 'idle') {
+                    $isStreaming = false;
+                }
+            }
             if (data.activeTab) $activeTab = data.activeTab;
             if (data.connected !== undefined) $isConnected = data.connected;
             if (data.messages !== undefined) {
@@ -112,7 +194,12 @@
             if (data.sessionId !== undefined) $currentSessionId = data.sessionId;
             if (data.sessionTitle !== undefined) $sessionTitle = data.sessionTitle;
             if (data.tokenUsage !== undefined) $tokenUsage = data.tokenUsage;
-            if (data.modelConfig !== undefined) $modelConfigStore = data.modelConfig;
+            if (data.modelConfig !== undefined) {
+                $modelConfigStore = data.modelConfig;
+                if (data.modelConfig?.current?.reasoningEffort) {
+                    $selectedReasoningEffort = data.modelConfig.current.reasoningEffort;
+                }
+            }
             if (data.sessions !== undefined) $sessionsList = data.sessions;
             if (data.skills !== undefined) $skillsList = data.skills;
             if (data.config) {

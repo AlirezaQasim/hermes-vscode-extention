@@ -1,5 +1,22 @@
 export type TabId = 'chat' | 'sessions' | 'skills' | 'models' | 'settings';
 
+export interface AttachmentItem {
+    id: string;
+    name: string;
+    path?: string;
+    size?: number;
+    type: 'image' | 'file';
+    mimeType?: string;
+    data?: string; // base64 data for images
+    content?: string; // text content for files
+}
+
+export interface ProjectFolderItem {
+    name: string;
+    path: string;
+    isRoot: boolean;
+}
+
 export interface ToolCallStep {
     id: string;
     name: string;
@@ -9,6 +26,8 @@ export interface ToolCallStep {
     title?: string;
     result?: any;
     error?: string;
+    isSkill?: boolean;
+    skillName?: string;
 }
 
 export interface ChatMessage {
@@ -19,6 +38,9 @@ export interface ChatMessage {
     toolCalls?: ToolCallStep[];
     thinking?: string;
     displayKind?: string;
+    attachments?: AttachmentItem[];
+    errorMessage?: string;
+    errorCode?: string;
 }
 
 export interface HermesSession {
@@ -62,6 +84,7 @@ export interface ModelConfigData {
         provider: string;
         model: string;
         baseUrl: string;
+        reasoningEffort?: string;
     };
     providers: ModelProviderInfo[];
 }
@@ -86,7 +109,7 @@ export interface HostUpdateMessage {
 }
 
 export type WebviewToHostMessage =
-    | { type: 'sendPrompt'; text: string }
+    | { type: 'sendPrompt'; text: string; attachments?: AttachmentItem[] | undefined }
     | { type: 'cancelTurn' }
     | { type: 'newSession' }
     | { type: 'clearChat' }
@@ -95,8 +118,15 @@ export type WebviewToHostMessage =
     | { type: 'archiveSession'; sessionId: string; archive: boolean }
     | { type: 'deleteSession'; sessionId: string }
     | { type: 'switchTab'; tab: TabId }
-    | { type: 'saveModelConfig'; provider: string; model: string; apiKey?: string; baseUrl?: string }
+    | { type: 'saveModelConfig'; provider: string; model: string; apiKey?: string; baseUrl?: string; reasoningEffort?: string }
+    | { type: 'updateReasoningEffort'; effort: string }
+    | { type: 'transcribeVoice'; audioData: string; mimeType: string }
+    | { type: 'startVoiceRecording' }
+    | { type: 'stopVoiceRecording' }
     | { type: 'refreshData' }
     | { type: 'reconnect' }
     | { type: 'runSetupTerminal' }
+    | { type: 'pickAttachment' }
+    | { type: 'getProjectFolders' }
+    | { type: 'setCwd'; cwd: string }
     | { type: 'updateSetting'; key: string; value: any };

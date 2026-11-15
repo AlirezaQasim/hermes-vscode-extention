@@ -10,14 +10,25 @@ export const isCustomModel = writable<boolean>(false);
 export const apiKeyInput = writable<string>('');
 export const isKeyVisible = writable<boolean>(false);
 export const baseUrlInput = writable<string>('');
+export const selectedReasoningEffort = writable<string>('high');
 
-export function applyModelConfig(provider: string, model: string, apiKey?: string, baseUrl?: string): void {
+export function applyModelConfig(provider: string, model: string, apiKey?: string, baseUrl?: string, reasoningEffort?: string): void {
     postToHost({
         type: 'saveModelConfig',
         provider,
         model,
         apiKey: apiKey || '-',
-        baseUrl: baseUrl || '-'
+        baseUrl: baseUrl || '-',
+        reasoningEffort: reasoningEffort || 'high'
     });
-    showToast('Saved model configuration. Starting new chat...');
+    showToast('تنظیمات مدل و سطح استدلال با موفقیت ذخیره شد.');
+}
+
+export function applyReasoningEffort(effort: string): void {
+    selectedReasoningEffort.set(effort);
+    postToHost({
+        type: 'updateReasoningEffort',
+        effort
+    });
+    showToast(`سطح استدلال روی "${effort}" تنظیم شد`);
 }
