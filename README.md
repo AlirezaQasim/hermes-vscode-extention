@@ -1,11 +1,11 @@
 # Hermes Agent VS Code Extension
 
-[![Version](https://img.shields.io/badge/version-1.0.0-gold.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.0.2-gold.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.txt)
 [![Protocol](https://img.shields.io/badge/Protocol-ACP%20v1%20(JSON--RPC%202.0)-emerald.svg)](https://agentclientprotocol.com/)
 [![Frontend](https://img.shields.io/badge/Frontend-Svelte%204-ff3e00.svg)](https://svelte.dev/)
 [![Language](https://img.shields.io/badge/Language-TypeScript%205-3178c6.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/Tests-31%20Passed-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/Tests-38%20Passed-brightgreen.svg)](test/)
 
 The official Visual Studio Code extension for [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research — the self-improving AI coding agent featuring persistent memory, autonomous skill synthesis, and multi-platform messaging gateway.
 
@@ -55,9 +55,9 @@ This project is built in adherence to modern open-source software engineering st
 3. **VS Code** 1.85.0 or later.
 
 ### Installation (VSIX)
-Download `hermes-vscode-1.0.0.vsix` and install it:
+Download `hermes-vscode-1.0.2.vsix` and install it:
 ```bash
-code --install-extension hermes-vscode-1.0.0.vsix --force
+code --install-extension hermes-vscode-1.0.2.vsix --force
 ```
 *(Or in VS Code: Extensions view `Ctrl+Shift+X` → `...` menu → **Install from VSIX...**)*
 
@@ -100,14 +100,14 @@ npm.cmd run compile
 # 4. Build extension host and Svelte webview bundles
 node esbuild.config.js
 
-# 5. Run automated test suite (31 tests)
+# 5. Run automated test suite (38 tests)
 node ./node_modules/jest/bin/jest.js
 
 # 6. Package production VSIX
 node ./node_modules/@vscode/vsce/vsce package --no-git-tag-version
 
 # 7. Install your build locally in VS Code
-code --install-extension hermes-vscode-1.0.0.vsix --force
+code --install-extension hermes-vscode-1.0.2.vsix --force
 ```
 
 ---
@@ -135,6 +135,18 @@ Configure settings in VS Code Preferences (`Ctrl+,` → search "Hermes"):
 | `hermes.connect` | `Ctrl+Alt+H` | Connect to local Hermes ACP client |
 | `hermes.newSession` | `Ctrl+Alt+N` | Start a new session |
 | `hermes.cancelTurn` | `Ctrl+Alt+C` | Cancel the running generation / tool call |
+
+---
+
+## 🏆 Release Highlights (v1.0.2)
+
+* **Robust API Key Persistence:** Resolved `.env` duplicate key collisions with atomic multi-line replacement and immediate UI mask synchronization.
+* **Full OpenRouter & Free Tier Catalog:** Directly merged Hermes curated catalog with all Free Tier models (`nvidia/nemotron-3-ultra-550b-a55b:free`, `nvidia/nemotron-3.5-lightning:free`, etc.) and automated selection snapping.
+* **Native Voice Notes & Gemini Audio STT:** Complete recording pipeline with PowerShell recording engine and Google Gemini speech-to-text.
+* **Reasoning Effort Configuration (CLI Option 41):** Full ACP integration allowing on-the-fly reasoning effort adjustments from Minimal to Ultra.
+* **Strict ACP-Linked Skill Learning Banners:** Skill learning cards appear strictly upon active ACP skill creation events rather than general command turns.
+* **Responsive Multi-Row Layouts:** Compact view adaptations preventing element collisions on small screens and narrow sidebars.
+* **Verified Quality:** 100% test pass rate across 8 test suites (38 unit tests).
 
 ---
 
