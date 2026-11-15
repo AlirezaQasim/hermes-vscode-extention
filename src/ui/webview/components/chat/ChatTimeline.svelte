@@ -74,6 +74,7 @@
         if (msg.learnedSkill || msg.isSkillLearning) return true;
         if (msg.toolCalls && Array.isArray(msg.toolCalls)) {
             return msg.toolCalls.some(tc => {
+                if (tc.isSkill) return true;
                 const name = (tc.name || tc.title || '').toLowerCase();
                 return name.includes('skill') || name.includes('learn') || name.includes('teach') || name.includes('curator') || name.includes('memor');
             });
