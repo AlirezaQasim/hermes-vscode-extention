@@ -1,6 +1,6 @@
 <script>
     import { onMount } from 'svelte';
-    import { activeTab, isConnected, autoApproveSetting, cwdSetting, agentActivity, modalStore, closeModal, toastStore, showToast, voiceTranscriptStore, postToHost } from '../state/uiStore';
+    import { activeTab, isConnected, autoApproveSetting, cwdSetting, appVersion, agentActivity, modalStore, closeModal, toastStore, showToast, voiceTranscriptStore, postToHost } from '../state/uiStore';
     import { messages, currentSessionId, sessionTitle, tokenUsage, isStreaming, attachmentsStore, addAttachment, projectFoldersStore, currentCwdStore } from '../state/chatStore';
     import { sessionsList } from '../state/sessionStore';
     import { skillsList } from '../state/skillStore';
@@ -205,6 +205,7 @@
             if (data.config) {
                 $autoApproveSetting = data.config.autoApprove;
                 $cwdSetting = data.config.cwd;
+                if (data.config.version) $appVersion = data.config.version;
             }
         };
 

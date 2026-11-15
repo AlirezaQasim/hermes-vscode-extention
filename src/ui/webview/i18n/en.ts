@@ -125,6 +125,6 @@ export const en: Record<string, string> = {
     'modal.archiveSession': 'Are you sure you want to archive this session?',
 
     // Footer Bar
-    'footer.agent': 'HERMES / v1.0.0',
+    'footer.agent': 'HERMES / v1.0.2',
     'footer.tagline': 'Local. Autonomous. Under Your Control.'
 };

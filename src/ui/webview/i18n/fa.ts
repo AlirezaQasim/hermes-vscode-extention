@@ -125,6 +125,6 @@ export const fa: Record<string, string> = {
     'modal.archiveSession': 'آیا می‌خواهید این گفتگو را آرشیو کنید؟',
 
     // Footer Bar
-    'footer.agent': 'HERMES / v1.0.0',
+    'footer.agent': 'HERMES / v1.0.2',
     'footer.tagline': 'محلی. مستقل. تحت کنترل شما.'
 };

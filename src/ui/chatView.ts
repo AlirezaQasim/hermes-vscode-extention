@@ -1346,7 +1346,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 agentActivity: this.agentActivity,
                 config: {
                     autoApprove,
-                    cwd: currentCwd
+                    cwd: currentCwd,
+                    version: this.context.extension?.packageJSON?.version || '1.0.2'
                 }
             });
         }
