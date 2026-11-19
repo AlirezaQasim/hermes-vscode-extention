@@ -123,8 +123,11 @@ export const fa: Record<string, string> = {
     'modal.confirm': 'تأیید',
     'modal.deleteSession': 'آیا مطمئن هستید که می‌خواهید این گفتگو را برای همیشه حذف کنید؟ پیام‌ها و تاریخچه قابل بازیابی نخواهند بود.',
     'modal.archiveSession': 'آیا می‌خواهید این گفتگو را آرشیو کنید؟',
+    'modal.clearChat': 'آیا مطمئن هستید که می‌خواهید سابقه این گفتگو را پاک کنید؟ تمام پیام‌ها برای همیشه حذف خواهند شد و این عملیات غیرقابل بازگشت است.',
+    'modal.clearChatConfirm': 'پاک کردن سابقه',
+    'modal.clearChatSuccess': 'سابقه گفتگو برای همیشه پاکسازی شد',
 
     // Footer Bar
-    'footer.agent': 'HERMES / v1.0.2',
+    'footer.agent': 'HERMES / v1.0.3',
     'footer.tagline': 'محلی. مستقل. تحت کنترل شما.'
 };

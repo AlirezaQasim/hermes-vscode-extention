@@ -35,7 +35,7 @@ describe('ConfigService', () => {
         const gemini = modelConfig.providers.find(p => p.id === 'gemini');
         expect(gemini).toBeDefined();
         if (gemini) {
-            expect(gemini.models.length).toBe(19);
+            expect(gemini.models.length).toBe(20);
             expect(gemini.models.some(m => m.id === 'gemini-3.5-flash-lite')).toBe(true);
             expect(gemini.models.some(m => m.id === 'gemini-3.8-flash')).toBe(true);
             expect(gemini.models.some(m => m.id.includes('claude'))).toBe(false);

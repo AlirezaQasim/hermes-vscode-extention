@@ -1,11 +1,11 @@
 # Hermes Agent VS Code Extension
 
-[![Version](https://img.shields.io/badge/version-1.0.2-gold.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.0.3-gold.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.txt)
 [![Protocol](https://img.shields.io/badge/Protocol-ACP%20v1%20(JSON--RPC%202.0)-emerald.svg)](https://agentclientprotocol.com/)
 [![Frontend](https://img.shields.io/badge/Frontend-Svelte%204-ff3e00.svg)](https://svelte.dev/)
 [![Language](https://img.shields.io/badge/Language-TypeScript%205-3178c6.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/Tests-38%20Passed-brightgreen.svg)](test/)
+[![Tests](https://img.shields.io/badge/Tests-42%20Passed-brightgreen.svg)](test/)
 
 The official Visual Studio Code extension for [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research — the self-improving AI coding agent featuring persistent memory, autonomous skill synthesis, and multi-platform messaging gateway.
 
@@ -55,9 +55,9 @@ This project is built in adherence to modern open-source software engineering st
 3. **VS Code** 1.85.0 or later.
 
 ### Installation (VSIX)
-Download `hermes-vscode-1.0.2.vsix` and install it:
+Download `hermes-vscode-1.0.3.vsix` and install it:
 ```bash
-code --install-extension hermes-vscode-1.0.2.vsix --force
+code --install-extension hermes-vscode-1.0.3.vsix --force
 ```
 *(Or in VS Code: Extensions view `Ctrl+Shift+X` → `...` menu → **Install from VSIX...**)*
 
@@ -100,15 +100,25 @@ npm.cmd run compile
 # 4. Build extension host and Svelte webview bundles
 node esbuild.config.js
 
-# 5. Run automated test suite (38 tests)
+# 5. Run automated test suite (42 tests)
 node ./node_modules/jest/bin/jest.js
 
 # 6. Package production VSIX
 node ./node_modules/@vscode/vsce/vsce package --no-git-tag-version
 
 # 7. Install your build locally in VS Code
-code --install-extension hermes-vscode-1.0.2.vsix --force
+code --install-extension hermes-vscode-1.0.3.vsix --force
 ```
+
+---
+
+## 🏆 Release Highlights (v1.0.3)
+
+* **Permanent Session Deletion & Concurrency Fix:** Resolved SQLite database lock contention (`database is locked`) by eliminating unclosed connection leaks and integrating automated CLI fallback, guaranteeing reliable deletion across Active and Archived sessions.
+* **Clear Chat Warning Modal:** Added a mandatory confirmation dialog before clearing conversations, informing users of irreversibility.
+* **Zero Ghost Resurrections:** Cleared conversations now permanently delete their message history from disk and re-initialize a fresh session ID, preventing previous chats from being restored via Resume Session.
+* **Responsive Python Daemon:** Refactored IPC loop to use unbuffered line reading, preventing Windows pipe buffer delays.
+* **Verified Quality:** 100% test pass rate across 9 test suites (42 unit tests).
 
 ---
 

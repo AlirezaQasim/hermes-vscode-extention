@@ -29,7 +29,7 @@ export const activeTab = writable<TabId>('chat');
 export const isConnected = writable<boolean>(false);
 export const autoApproveSetting = writable<boolean>(false);
 export const cwdSetting = writable<string>('');
-export const appVersion = writable<string>('1.0.2');
+export const appVersion = writable<string>('1.0.3');
 
 export interface AgentActivity {
     state: 'idle' | 'thinking' | 'streaming' | 'tool' | 'writing_skill';

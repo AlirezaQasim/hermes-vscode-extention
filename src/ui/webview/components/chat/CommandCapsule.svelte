@@ -16,7 +16,7 @@
         requestProjectFolders 
     } from '../../state/chatStore';
     import { modelConfigStore, selectedReasoningEffort } from '../../state/modelStore';
-    import { activeTab, isConnected, postToHost, showToast, voiceTranscriptStore, appVersion } from '../../state/uiStore';
+    import { activeTab, isConnected, postToHost, showToast, voiceTranscriptStore, appVersion, openModal } from '../../state/uiStore';
     import { t } from '../../i18n';
     import CommandPalette from './CommandPalette.svelte';
 
@@ -284,8 +284,17 @@
     }
 
     function handleClearChat() {
-        clearMessages();
-        showToast('سابقه گفتگو پاکسازی شد');
+        openModal({
+            icon: '🧹',
+            title: t('modal.confirmTitle'),
+            message: t('modal.clearChat'),
+            confirmLabel: t('modal.clearChatConfirm'),
+            cancelLabel: t('modal.cancel'),
+            onConfirm: () => {
+                clearMessages();
+                showToast(t('modal.clearChatSuccess'));
+            }
+        });
     }
 </script>
 

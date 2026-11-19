@@ -60,5 +60,8 @@ export function startNewSession(): void {
 export function clearMessages(): void {
     messages.set([]);
     attachmentsStore.set([]);
+    currentSessionId.set(null);
+    sessionTitle.set('');
+    isStreaming.set(false);
     postToHost({ type: 'clearChat' });
 }

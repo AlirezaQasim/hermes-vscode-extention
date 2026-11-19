@@ -67,9 +67,9 @@ export class SessionService {
             const pythonExe = getPythonExecutablePath();
             const scriptPath = this.getScriptPath();
 
-            this.logger.info(`Spawning Hermes DB Daemon: ${pythonExe} ${scriptPath} --daemon`);
+            this.logger.info(`Spawning Hermes DB Daemon: ${pythonExe} -u ${scriptPath} --daemon`);
 
-            this.daemonProcess = spawn(pythonExe, [scriptPath, '--daemon'], {
+            this.daemonProcess = spawn(pythonExe, ['-u', scriptPath, '--daemon'], {
                 stdio: ['pipe', 'pipe', 'pipe'],
                 windowsHide: true
             });
@@ -153,7 +153,7 @@ export class SessionService {
                     this.pendingRequests.delete(reqId);
                     reject(new Error(`Timeout waiting for daemon response on action "${action}"`));
                 }
-            }, 8000);
+            }, 15000);
 
             this.pendingRequests.set(reqId, { resolve, reject, timer });
             this.daemonProcess.stdin.write(JSON.stringify(payload) + '\n');
@@ -199,23 +199,88 @@ export class SessionService {
     }
 
     public async archiveSession(sessionId: string, archive: boolean = true): Promise<boolean> {
-        try {
-            const res = await this.sendRequest('archive', { sessionId, archive });
-            return res?.success === true;
-        } catch (error) {
-            this.logger.error(`SessionService.archiveSession error for ${sessionId}:`, error);
+        if (!fs.existsSync(this.dbPath)) {
             return false;
         }
+        try {
+            const res = await this.sendRequest('archive', { sessionId, archive });
+            if (res?.success === true) {
+                return true;
+            }
+        } catch (error) {
+            this.logger.warn(`Daemon archive request failed for ${sessionId}, attempting direct CLI fallback:`, error);
+        }
+
+        // Direct CLI fallback execution
+        return new Promise<boolean>((resolve) => {
+            try {
+                const pythonExe = getPythonExecutablePath();
+                const scriptPath = this.getScriptPath();
+                const actionArg = archive ? 'archive' : 'restore';
+                const cp = spawn(pythonExe, [scriptPath, 'archive', this.dbPath, sessionId, actionArg], {
+                    windowsHide: true
+                });
+                let stdout = '';
+                cp.stdout.on('data', d => { stdout += d.toString('utf8'); });
+                cp.on('close', (code) => {
+                    try {
+                        const parsed = JSON.parse(stdout.trim() || '{}');
+                        resolve(parsed.success === true);
+                    } catch {
+                        resolve(code === 0);
+                    }
+                });
+                cp.on('error', (err) => {
+                    this.logger.error(`Fallback archive error for ${sessionId}:`, err);
+                    resolve(false);
+                });
+            } catch (fallbackErr) {
+                this.logger.error(`Failed to launch fallback archive for ${sessionId}:`, fallbackErr);
+                resolve(false);
+            }
+        });
     }
 
     public async deleteSession(sessionId: string): Promise<boolean> {
+        if (!fs.existsSync(this.dbPath)) {
+            return true;
+        }
         try {
             const res = await this.sendRequest('delete', { sessionId });
-            return res?.success === true;
+            if (res?.success === true) {
+                return true;
+            }
         } catch (error) {
-            this.logger.error(`SessionService.deleteSession error for ${sessionId}:`, error);
-            return false;
+            this.logger.warn(`Daemon delete request failed for ${sessionId}, attempting direct CLI fallback:`, error);
         }
+
+        // Direct CLI fallback execution
+        return new Promise<boolean>((resolve) => {
+            try {
+                const pythonExe = getPythonExecutablePath();
+                const scriptPath = this.getScriptPath();
+                const cp = spawn(pythonExe, [scriptPath, 'delete', this.dbPath, sessionId], {
+                    windowsHide: true
+                });
+                let stdout = '';
+                cp.stdout.on('data', d => { stdout += d.toString('utf8'); });
+                cp.on('close', (code) => {
+                    try {
+                        const parsed = JSON.parse(stdout.trim() || '{}');
+                        resolve(parsed.success === true);
+                    } catch {
+                        resolve(code === 0);
+                    }
+                });
+                cp.on('error', (err) => {
+                    this.logger.error(`Fallback delete error for ${sessionId}:`, err);
+                    resolve(false);
+                });
+            } catch (fallbackErr) {
+                this.logger.error(`Failed to launch fallback delete for ${sessionId}:`, fallbackErr);
+                resolve(false);
+            }
+        });
     }
 
     public dispose(): void {

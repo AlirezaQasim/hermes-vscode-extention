@@ -557,7 +557,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         if (this.currentSessionId === message.sessionId) {
                             this.currentSessionId = null;
                             this.messages = [];
+                            try {
+                                await this.createNewSession();
+                            } catch {}
                         }
+                        const ctx = this.getContext ? this.getContext() : (global as any).hermesExtensionContext;
+                        ctx?.sessionsProvider?.refresh();
                         await this.loadDashboardData();
                         this.refresh();
                     } else {
@@ -696,6 +701,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     private async handleClearChat(): Promise<void> {
         this.logger.info('Clearing chat messages and active turn state...');
+        const sidToDelete = this.currentSessionId;
         this.messages = [];
         this.pendingAgentMessage = '';
         this.pendingThinking = '';
@@ -706,6 +712,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             await this.cancelTurn();
         } catch {}
 
+        if (sidToDelete) {
+            try {
+                this.logger.info(`Deleting cleared session ${sidToDelete} from DB...`);
+                await this.sessionService.deleteSession(sidToDelete);
+            } catch (err) {
+                this.logger.warn(`Failed to delete session ${sidToDelete} from DB on clearChat:`, err);
+            }
+        }
+
+        // Create a fresh clean session so history cannot be resurrected from Sessions tab
+        await this.createNewSession();
+
+        const ctx = this.getContext ? this.getContext() : (global as any).hermesExtensionContext;
+        ctx?.sessionsProvider?.refresh();
+        await this.loadDashboardData();
         this.refresh();
 
         if (this.view?.webview) {
@@ -1347,7 +1368,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 config: {
                     autoApprove,
                     cwd: currentCwd,
-                    version: this.context.extension?.packageJSON?.version || '1.0.2'
+                    version: this.context.extension?.packageJSON?.version || '1.0.3'
                 }
             });
         }

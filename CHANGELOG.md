@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-11-19
+
+### Fixed
+- **Session Deletion & Database Locking:** Fixed SQLite file locking issue in `hermesDb.py` and persistent daemon IPC where unclosed database connections prevented deletions (`database is locked`), causing session deletion failures in Active and Archived tabs. Added dynamic multi-table cascading cleanup and seamless CLI execution fallback.
+- **Clear Chat Confirmation Modal:** Added a mandatory confirmation dialog to the Clear Chat button (🧹) in CommandCapsule with clear warning of irreversibility before any clearing occurs.
+- **Permanent Chat Reset:** Resolved ghost session resurrection where cleared conversations could be reloaded from the Sessions tab. Clearing chat history now permanently deletes past messages from the database and initializes a fresh, isolated session ID.
+- **Daemon IPC Responsiveness:** Switched Python daemon from buffered `for line in sys.stdin` to unbuffered `sys.stdin.readline()`, ensuring immediate line-by-line processing without pipe buffering latency.
+
 ## [1.0.2] - 2026-11-14
 
 ### Fixed

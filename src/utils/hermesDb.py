@@ -61,10 +61,16 @@ def get_db(db_path_str=None):
     if not db_path.exists():
         return None
     try:
-        conn = sqlite3.connect(str(db_path), timeout=5)
+        conn = sqlite3.connect(str(db_path), timeout=20.0)
         conn.row_factory = sqlite3.Row
+        try:
+            conn.execute("PRAGMA busy_timeout = 20000")
+            conn.execute("PRAGMA journal_mode = WAL")
+        except Exception:
+            pass
         return conn
-    except Exception:
+    except Exception as e:
+        sys.stderr.write(f"Error opening database {db_path}: {e}\n")
         return None
 
 def query_sessions(db_path_str=None, limit=100):
@@ -100,6 +106,11 @@ def query_sessions(db_path_str=None, limit=100):
     except Exception as e:
         sys.stderr.write(f"Error listing sessions: {e}\n")
         return []
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 def list_sessions(db_path_str=None, limit=100):
     print(json.dumps(query_sessions(db_path_str, limit)))
@@ -117,6 +128,11 @@ def do_archive_session(db_path_str, session_id, archive=True):
     except Exception as e:
         sys.stderr.write(f"Error archiving session: {e}\n")
         return {"success": False, "error": str(e)}
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 def archive_session(db_path_str, session_id, archive=True):
     print(json.dumps(do_archive_session(db_path_str, session_id, archive)))
@@ -127,17 +143,34 @@ def do_delete_session(db_path_str, session_id):
         return {"success": False, "error": "Database not accessible"}
     try:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
-        try:
-            cursor.execute("DELETE FROM session_model_usage WHERE session_id = ?", (session_id,))
-        except Exception:
-            pass
+        # Temporarily disable foreign keys so cascaded or related tables don't reject delete
+        cursor.execute("PRAGMA foreign_keys = OFF")
+
+        # Discover all tables in the database dynamically and remove matching records
+        tables = [r[0] for r in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        for tbl in tables:
+            if tbl.startswith("sqlite_") or tbl == "sessions":
+                continue
+            try:
+                cols = [c[1] for c in cursor.execute(f"PRAGMA table_info([{tbl}])").fetchall()]
+                if "session_id" in cols:
+                    cursor.execute(f"DELETE FROM [{tbl}] WHERE session_id = ?", (session_id,))
+                elif "sessionId" in cols:
+                    cursor.execute(f"DELETE FROM [{tbl}] WHERE sessionId = ?", (session_id,))
+            except Exception:
+                pass
+
         cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         conn.commit()
         return {"success": True, "sessionId": session_id, "deleted": True}
     except Exception as e:
-        sys.stderr.write(f"Error deleting session: {e}\n")
+        sys.stderr.write(f"Error deleting session {session_id}: {e}\n")
         return {"success": False, "error": str(e)}
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 def delete_session(db_path_str, session_id):
     print(json.dumps(do_delete_session(db_path_str, session_id)))
@@ -223,6 +256,11 @@ def query_messages(db_path_str, session_id):
     except Exception as e:
         sys.stderr.write(f"Error getting messages: {e}\n")
         return []
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 def get_messages(db_path_str, session_id):
     print(json.dumps(query_messages(db_path_str, session_id)))
@@ -751,7 +789,10 @@ def save_model_config(hermes_home_str, provider, model, api_key=None, base_url=N
 
 def run_daemon():
     """Persistent warm IPC daemon for fast JSON requests via stdin/stdout without cold starts."""
-    for line in sys.stdin:
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            break
         line = line.strip()
         if not line:
             continue
@@ -825,34 +866,34 @@ if __name__ == "__main__":
         get_model_config(h_home)
     elif action == "archive":
         args = sys.argv[2:]
-        if len(args) == 1:
+        if len(args) >= 3:
+            db_path = args[0]
+            sid = args[1]
+            unarch = args[2] in {"unarchive", "0", "restore", "false"}
+        elif len(args) == 2:
+            db_path = args[0]
+            sid = args[1]
+            unarch = False
+        elif len(args) == 1:
             db_path = ""
             sid = args[0]
             unarch = False
-        elif len(args) >= 2 and args[1] in {"unarchive", "0", "restore", "false"}:
-            db_path = ""
-            sid = args[0]
-            unarch = True
-        elif len(args) >= 2 and Path(args[0]).exists():
-            db_path = args[0]
-            sid = args[1]
-            unarch = len(args) > 2 and args[2] in {"unarchive", "0", "restore", "false"}
         else:
             db_path = ""
-            sid = args[0]
+            sid = ""
             unarch = False
         archive_session(db_path, sid, archive=not unarch)
     elif action == "delete":
         args = sys.argv[2:]
-        if len(args) == 1:
-            db_path = ""
-            sid = args[0]
-        elif len(args) >= 2 and Path(args[0]).exists():
+        if len(args) >= 2:
             db_path = args[0]
             sid = args[1]
-        else:
+        elif len(args) == 1:
             db_path = ""
             sid = args[0]
+        else:
+            db_path = ""
+            sid = ""
         delete_session(db_path, sid)
     elif action == "save_model":
         args = sys.argv[2:]
