@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import type { ChatMessage, AttachmentItem, ProjectFolderItem } from '../types';
 import { postToHost } from './uiStore';
 
@@ -58,10 +58,11 @@ export function startNewSession(): void {
 }
 
 export function clearMessages(): void {
+    const sid = get(currentSessionId);
     messages.set([]);
     attachmentsStore.set([]);
     currentSessionId.set(null);
     sessionTitle.set('');
     isStreaming.set(false);
-    postToHost({ type: 'clearChat' });
+    postToHost({ type: 'clearChat', sessionId: sid || undefined });
 }

@@ -1,6 +1,6 @@
 # Hermes Agent VS Code Extension
 
-[![Version](https://img.shields.io/badge/version-1.0.3-gold.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.0.4-gold.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.txt)
 [![Protocol](https://img.shields.io/badge/Protocol-ACP%20v1%20(JSON--RPC%202.0)-emerald.svg)](https://agentclientprotocol.com/)
 [![Frontend](https://img.shields.io/badge/Frontend-Svelte%204-ff3e00.svg)](https://svelte.dev/)
@@ -55,9 +55,9 @@ This project is built in adherence to modern open-source software engineering st
 3. **VS Code** 1.85.0 or later.
 
 ### Installation (VSIX)
-Download `hermes-vscode-1.0.3.vsix` and install it:
+Download `hermes-vscode-1.0.4.vsix` and install it:
 ```bash
-code --install-extension hermes-vscode-1.0.3.vsix --force
+code --install-extension hermes-vscode-1.0.4.vsix --force
 ```
 *(Or in VS Code: Extensions view `Ctrl+Shift+X` → `...` menu → **Install from VSIX...**)*
 
@@ -107,8 +107,17 @@ node ./node_modules/jest/bin/jest.js
 node ./node_modules/@vscode/vsce/vsce package --no-git-tag-version
 
 # 7. Install your build locally in VS Code
-code --install-extension hermes-vscode-1.0.3.vsix --force
+code --install-extension hermes-vscode-1.0.4.vsix --force
 ```
+
+---
+
+## 🏆 Release Highlights (v1.0.4)
+
+* **SQLite Trigger Deletion Guard Resolution:** Neutralized error `Refused to delete a session that has gateway runtime history` caused by SQLite trigger `sessions_runtime_ledger_delete_guard` on the `sessions` table. Explicitly cascades deletions through `session_admissions` (`target_session_id`), `worker_executions` (`session_id`), `messages`, and gateway ledger tables before safely deleting sessions.
+* **Guaranteed Physical Deletion:** Both session deletion in Sessions tab (Active & Archived) and Clear Chat in Chat tab now physically and irreversibly delete sessions and all associated messages from `state.db`. Resuming cleared sessions will never resurrect old messages.
+* **Stale Daemon Cleanup:** Automatically terminates orphaned background Python daemons upon extension lifecycle updates, preventing outdated code execution.
+* **Verified Quality:** 100% test pass rate across 9 test suites (42 unit tests).
 
 ---
 

@@ -128,6 +128,6 @@ export const fa: Record<string, string> = {
     'modal.clearChatSuccess': 'سابقه گفتگو برای همیشه پاکسازی شد',
 
     // Footer Bar
-    'footer.agent': 'HERMES / v1.0.3',
+    'footer.agent': 'HERMES / v1.0.4',
     'footer.tagline': 'محلی. مستقل. تحت کنترل شما.'
 };

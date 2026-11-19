@@ -189,7 +189,7 @@ export class HermesACPClient extends EventEmitter {
                             clientInfo: {
                                 name: 'vscode-hermes',
                                 title: 'VS Code Hermes Extension',
-                                version: '1.0.3'
+                                version: '1.0.4'
                             }
                         }, 20000);
 

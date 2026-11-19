@@ -652,7 +652,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 break;
             case 'clearChat':
             case 'clearHistory':
-                await this.handleClearChat();
+                await this.handleClearChat(message.sessionId);
                 break;
         }
     }
@@ -699,9 +699,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async handleClearChat(): Promise<void> {
+    private async handleClearChat(sessionIdFromMsg?: string): Promise<void> {
         this.logger.info('Clearing chat messages and active turn state...');
-        const sidToDelete = this.currentSessionId;
+        const sidToDelete = sessionIdFromMsg || this.currentSessionId;
         this.messages = [];
         this.pendingAgentMessage = '';
         this.pendingThinking = '';
@@ -716,10 +716,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             try {
                 this.logger.info(`Deleting cleared session ${sidToDelete} from DB...`);
                 await this.sessionService.deleteSession(sidToDelete);
+                this.allSessions = this.allSessions.filter(s => s.id !== sidToDelete);
             } catch (err) {
                 this.logger.warn(`Failed to delete session ${sidToDelete} from DB on clearChat:`, err);
             }
         }
+
+        this.currentSessionId = null;
 
         // Create a fresh clean session so history cannot be resurrected from Sessions tab
         await this.createNewSession();
@@ -1368,7 +1371,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 config: {
                     autoApprove,
                     cwd: currentCwd,
-                    version: this.context.extension?.packageJSON?.version || '1.0.3'
+                    version: this.context.extension?.packageJSON?.version || '1.0.4'
                 }
             });
         }

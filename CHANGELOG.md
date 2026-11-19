@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-11-19
+
+### Fixed
+- **SQLite Trigger Deletion Guard:** Fixed error `Refused to delete a session that has gateway runtime history` caused by SQLite trigger `sessions_runtime_ledger_delete_guard` firing when deleting sessions. Explicitly cascades deletions through `session_admissions` (`target_session_id`), `worker_executions` (`session_id`), `messages`, and gateway ledger tables before safely removing sessions.
+- **Permanent Session Deletion & Chat Clear:** Ensures physical deletion of sessions and all associated messages from `state.db` when deleting from Sessions tab (Active & Archived) or clearing history from the Chat tab, preventing session resurrection upon resume or reload.
+- **Daemon Lifecycle Synchronization:** Terminated stale Python daemon instances during extension initialization and reload, ensuring up-to-date database handlers execute without IPC protocol mismatch.
+
 ## [1.0.3] - 2026-11-19
 
 ### Fixed

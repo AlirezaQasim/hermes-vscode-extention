@@ -128,6 +128,6 @@ export const en: Record<string, string> = {
     'modal.clearChatSuccess': 'Conversation history permanently cleared',
 
     // Footer Bar
-    'footer.agent': 'HERMES / v1.0.3',
+    'footer.agent': 'HERMES / v1.0.4',
     'footer.tagline': 'Local. Autonomous. Under Your Control.'
 };

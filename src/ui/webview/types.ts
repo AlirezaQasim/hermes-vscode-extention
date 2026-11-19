@@ -112,7 +112,7 @@ export type WebviewToHostMessage =
     | { type: 'sendPrompt'; text: string; attachments?: AttachmentItem[] | undefined }
     | { type: 'cancelTurn' }
     | { type: 'newSession' }
-    | { type: 'clearChat' }
+    | { type: 'clearChat'; sessionId?: string }
     | { type: 'openSkillFile'; skillPath: string }
     | { type: 'loadSession'; sessionId: string }
     | { type: 'archiveSession'; sessionId: string; archive: boolean }
