@@ -116,4 +116,14 @@ describe('ConfigService', () => {
             expect(firstModel.contextLimit).toBeGreaterThan(0);
         }
     });
+
+    it('should dynamically discover cached providers such as opencode-free and copilot-acp', async () => {
+        const config = await service.getModelConfig();
+        expect(config.providers.length).toBeGreaterThanOrEqual(FALLBACK_PROVIDERS.length);
+        const opencode = config.providers.find(p => p.id === 'opencode-free');
+        if (opencode) {
+            expect(opencode.models.length).toBeGreaterThan(0);
+            expect(opencode.hasKey).toBe(true);
+        }
+    });
 });

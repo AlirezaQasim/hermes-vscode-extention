@@ -72,7 +72,7 @@
         ultra: '7. ultra (استدلال بی‌نهایت - سخت‌ترین الگوریتم‌ها)'
     };
 
-    $: activeModelObj = provider?.models?.find((m) => m.id === $selectedModelId);
+    $: activeModelObj = activeProvider?.models?.find((m) => m.id === $selectedModelId);
     $: isReasoningSupported = activeModelObj ? (activeModelObj.reasoning !== false) : true;
     $: rawEfforts = activeModelObj?.reasoningEfforts && activeModelObj.reasoningEfforts.length > 0 
         ? activeModelObj.reasoningEfforts 

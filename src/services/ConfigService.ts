@@ -304,9 +304,42 @@ export class ConfigService extends EventEmitter {
             }
         }
 
+        const providerCandidates = new Map<string, { id: string; name: string; envVar: string; baseUrl: string }>();
+
+        // 1. Initial known standard providers
+        for (const p of FALLBACK_PROVIDERS) {
+            providerCandidates.set(p.id, { ...p });
+        }
+
+        // 2. Discover providers from Hermes disk cache (provider_models_cache.json)
+        for (const [pid, entry] of Object.entries(diskCachedProviders)) {
+            if (!providerCandidates.has(pid)) {
+                let pName = pid;
+                if (pid === 'opencode-free') pName = 'OpenCode Free (Community / Keyless)';
+                else if (pid === 'copilot-acp') pName = 'GitHub Copilot ACP (Built-in LLM Gateway)';
+                else pName = `${pid.charAt(0).toUpperCase() + pid.slice(1)} (Hermes Discovered)`;
+                providerCandidates.set(pid, {
+                    id: pid,
+                    name: pName,
+                    envVar: `${pid.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY`,
+                    baseUrl: ''
+                });
+            }
+        }
+
+        // 3. Ensure currently configured provider from config.yaml is included
+        if (curProvider && !providerCandidates.has(curProvider)) {
+            providerCandidates.set(curProvider, {
+                id: curProvider,
+                name: `${curProvider.toUpperCase()} (Custom / Config)`,
+                envVar: `${curProvider.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY`,
+                baseUrl: curBaseUrl || ''
+            });
+        }
+
         const providersOut: ModelProviderInfo[] = [];
 
-        for (const p of FALLBACK_PROVIDERS) {
+        for (const p of providerCandidates.values()) {
             const pid = p.id;
             let envVar = p.envVar;
             if (pid === 'gemini' && !envKeys[envVar] && envKeys['GEMINI_API_KEY']) {
@@ -314,89 +347,93 @@ export class ConfigService extends EventEmitter {
             }
 
             const rawKey = envVar ? (envKeys[envVar] || '') : '';
-            const hasKey = Boolean(rawKey) || pid === 'ollama' || pid.includes('oauth') || pid === 'openai-codex';
-            const keyMasked = rawKey ? this.maskKey(rawKey) : (pid === 'ollama' ? 'Local' : (pid.includes('oauth') ? 'OAuth / CLI' : ''));
+            const hasKey = Boolean(rawKey) || pid === 'ollama' || pid.includes('oauth') || pid === 'openai-codex' || pid === 'opencode-free' || pid === 'copilot-acp';
+            const keyMasked = rawKey ? this.maskKey(rawKey) : (pid === 'ollama' ? 'Local' : (pid.includes('oauth') || pid === 'copilot-acp' ? 'OAuth / CLI' : (pid === 'opencode-free' ? 'Free / Keyless' : '')));
 
             let modelsList: ModelItem[] = [];
 
-            // A. Check models.dev authoritative cache first
+            // A. Check models.dev authoritative cache
             const mdevKey = PROVIDER_TO_MODELS_DEV[pid] || pid;
             const mdevProviderData = modelsDevCache[mdevKey];
-            if (mdevProviderData && typeof mdevProviderData === 'object' && mdevProviderData.models) {
-                const rawModels = mdevProviderData.models as Record<string, any>;
-                const agenticIds = Object.entries(rawModels)
-                    .filter(([mid, entry]) => {
-                        if (!entry || entry.tool_call !== true) return false;
-                        if (NOISE_PATTERNS.test(mid)) return false;
-                        if ((pid === 'gemini' || pid === 'google') && GOOGLE_HIDDEN_MODELS.has(mid.toLowerCase())) return false;
-                        return true;
-                    })
-                    .map(([mid]) => mid);
+            const rawModels = (mdevProviderData && typeof mdevProviderData === 'object' && mdevProviderData.models)
+                ? (mdevProviderData.models as Record<string, any>)
+                : {};
 
-                const curated = CURATED_STATIC_MODELS[pid] || [];
-                const mergedMap = new Map<string, string>();
-                for (const mid of [...curated, ...agenticIds]) {
-                    const lk = mid.toLowerCase();
-                    if (!mergedMap.has(lk)) {
-                        mergedMap.set(lk, mid);
-                    }
-                }
+            const agenticIds = Object.entries(rawModels)
+                .filter(([mid, entry]) => {
+                    if (!entry || entry.tool_call !== true) return false;
+                    if (NOISE_PATTERNS.test(mid)) return false;
+                    if ((pid === 'gemini' || pid === 'google') && GOOGLE_HIDDEN_MODELS.has(mid.toLowerCase())) return false;
+                    return true;
+                })
+                .map(([mid]) => mid);
 
-                const resolvedIds = Array.from(mergedMap.values());
-                if (resolvedIds.length > 0) {
-                    modelsList = resolvedIds.map((mid) => {
-                        const rawEntry = rawModels[mid] || rawModels[mid.toLowerCase()];
-                        const reasoning = rawEntry ? (rawEntry.reasoning === true) : undefined;
-                        let reasoningEfforts: string[] | undefined = undefined;
-                        if (rawEntry && Array.isArray(rawEntry.reasoning_options)) {
-                            const effortOpt = rawEntry.reasoning_options.find((o: any) => o && o.type === 'effort');
-                            if (effortOpt && Array.isArray(effortOpt.values) && effortOpt.values.length > 0) {
-                                reasoningEfforts = effortOpt.values;
-                            }
-                        }
-                        const contextLimit = rawEntry?.limit?.context && typeof rawEntry.limit.context === 'number'
-                            ? rawEntry.limit.context
-                            : undefined;
+            // B. Also merge cached models from diskCachedProviders (live from CLI)
+            const diskCachedModels: string[] = Array.isArray(diskCachedProviders[pid]?.models)
+                ? diskCachedProviders[pid].models
+                : [];
 
-                        return {
-                            id: mid,
-                            name: this.cleanModelName(mid),
-                            tag: this.categorizeModel(mid),
-                            reasoning,
-                            reasoningEfforts,
-                            contextLimit
-                        };
-                    });
+            const curated = CURATED_STATIC_MODELS[pid] || [];
+            const mergedMap = new Map<string, string>();
+            // Merge in priority order: diskCachedModels (live from CLI), agenticIds from registry, curated fallback
+            for (const mid of [...diskCachedModels, ...agenticIds, ...curated]) {
+                const lk = mid.toLowerCase();
+                if (!mergedMap.has(lk)) {
+                    mergedMap.set(lk, mid);
                 }
             }
 
-            // B. Fallback to secondary provider_models_cache.json if not resolved from models.dev
-            if (modelsList.length === 0) {
-                const cachedModels = diskCachedProviders[pid]?.models;
-                if (Array.isArray(cachedModels) && cachedModels.length > 0) {
-                    modelsList = cachedModels.map((mid: string) => ({
+            const resolvedIds = Array.from(mergedMap.values());
+            if (resolvedIds.length > 0) {
+                modelsList = resolvedIds.map((mid) => {
+                    let rawEntry = rawModels[mid] || rawModels[mid.toLowerCase()];
+                    if (!rawEntry) {
+                        const parts = mid.split('/');
+                        if (parts.length === 2 && modelsDevCache[parts[0]]?.models?.[parts[1]]) {
+                            rawEntry = modelsDevCache[parts[0]].models[parts[1]];
+                        }
+                    }
+                    const reasoning = rawEntry ? (rawEntry.reasoning === true) : undefined;
+                    let reasoningEfforts: string[] | undefined = undefined;
+                    if (rawEntry && Array.isArray(rawEntry.reasoning_options)) {
+                        const effortOpt = rawEntry.reasoning_options.find((o: any) => o && o.type === 'effort');
+                        if (effortOpt && Array.isArray(effortOpt.values) && effortOpt.values.length > 0) {
+                            reasoningEfforts = effortOpt.values;
+                        }
+                    }
+                    const contextLimit = rawEntry?.limit?.context && typeof rawEntry.limit.context === 'number'
+                        ? rawEntry.limit.context
+                        : undefined;
+
+                    return {
                         id: mid,
                         name: this.cleanModelName(mid),
-                        tag: this.categorizeModel(mid)
-                    }));
-                }
+                        tag: this.categorizeModel(mid),
+                        reasoning,
+                        reasoningEfforts,
+                        contextLimit
+                    };
+                });
             }
 
-            // C. Fallback to hardcoded curated default models
+            // C. Fallback to hardcoded curated default models if nothing was resolved
             if (modelsList.length === 0) {
                 modelsList = this.getDefaultModelsForProvider(pid);
             }
 
-            providersOut.push({
-                id: pid,
-                name: p.name,
-                envVar,
-                hasKey,
-                keyMasked,
-                baseUrl: p.baseUrl,
-                docUrl: '',
-                models: modelsList.slice(0, 500)
-            });
+            const isFallback = FALLBACK_PROVIDERS.some(f => f.id === pid);
+            if (isFallback || modelsList.length > 0 || hasKey || pid === curProvider) {
+                providersOut.push({
+                    id: pid,
+                    name: p.name,
+                    envVar,
+                    hasKey,
+                    keyMasked,
+                    baseUrl: p.baseUrl,
+                    docUrl: '',
+                    models: modelsList.slice(0, 500)
+                });
+            }
         }
 
         return {
