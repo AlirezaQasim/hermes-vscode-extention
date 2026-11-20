@@ -283,6 +283,48 @@ export class SessionService {
         });
     }
 
+    public async clearSessionMessages(sessionId: string): Promise<boolean> {
+        if (!fs.existsSync(this.dbPath)) {
+            return true;
+        }
+        try {
+            const res = await this.sendRequest('clearMessages', { sessionId });
+            if (res?.success === true) {
+                return true;
+            }
+        } catch (error) {
+            this.logger.warn(`Daemon clearMessages request failed for ${sessionId}, attempting direct CLI fallback:`, error);
+        }
+
+        // Direct CLI fallback execution
+        return new Promise<boolean>((resolve) => {
+            try {
+                const pythonExe = getPythonExecutablePath();
+                const scriptPath = this.getScriptPath();
+                const cp = spawn(pythonExe, [scriptPath, 'clear', this.dbPath, sessionId], {
+                    windowsHide: true
+                });
+                let stdout = '';
+                cp.stdout.on('data', d => { stdout += d.toString('utf8'); });
+                cp.on('close', (code) => {
+                    try {
+                        const parsed = JSON.parse(stdout.trim() || '{}');
+                        resolve(parsed.success === true);
+                    } catch {
+                        resolve(code === 0);
+                    }
+                });
+                cp.on('error', (err) => {
+                    this.logger.error(`Fallback clearMessages error for ${sessionId}:`, err);
+                    resolve(false);
+                });
+            } catch (fallbackErr) {
+                this.logger.error(`Failed to launch fallback clearMessages for ${sessionId}:`, fallbackErr);
+                resolve(false);
+            }
+        });
+    }
+
     public dispose(): void {
         for (const [, req] of this.pendingRequests.entries()) {
             clearTimeout(req.timer);

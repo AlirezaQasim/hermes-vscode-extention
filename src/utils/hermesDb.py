@@ -226,6 +226,73 @@ def do_delete_session(db_path_str, session_id):
 def delete_session(db_path_str, session_id):
     print(json.dumps(do_delete_session(db_path_str, session_id)))
 
+def do_clear_session_messages(db_path_str, session_id):
+    """
+    Clears all messages belonging to a session while keeping the session record itself.
+    Resets message_count to 0, token counters to 0, and bumps transcript_revision.
+    """
+    if not session_id:
+        return {"success": False, "error": "No sessionId provided"}
+    db_path = Path(db_path_str) if db_path_str else get_state_db_path()
+    if not db_path or not db_path.exists():
+        return {"success": False, "error": "Database file not found"}
+
+    conn = get_db(str(db_path))
+    if not conn:
+        return {"success": False, "error": "Unable to connect to database"}
+
+    try:
+        cursor = conn.cursor()
+        
+        # 1. Delete all messages for this session
+        cursor.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+        
+        # 2. Clean model usage or compression locks specific to this session
+        try:
+            cursor.execute("DELETE FROM session_model_usage WHERE session_id = ?", (session_id,))
+        except Exception:
+            pass
+        try:
+            cursor.execute("DELETE FROM compression_locks WHERE session_id = ?", (session_id,))
+        except Exception:
+            pass
+
+        # 3. Reset session message count and token counters while preserving the session container
+        cols = [c[1] for c in cursor.execute("PRAGMA table_info(sessions)").fetchall()]
+        updates = []
+        if "message_count" in cols:
+            updates.append("message_count = 0")
+        if "input_tokens" in cols:
+            updates.append("input_tokens = 0")
+        if "output_tokens" in cols:
+            updates.append("output_tokens = 0")
+        if "cache_read_tokens" in cols:
+            updates.append("cache_read_tokens = 0")
+        if "cache_write_tokens" in cols:
+            updates.append("cache_write_tokens = 0")
+        if "reasoning_tokens" in cols:
+            updates.append("reasoning_tokens = 0")
+        if "transcript_revision" in cols:
+            updates.append("transcript_revision = transcript_revision + 1")
+
+        if updates:
+            sql = f"UPDATE sessions SET {', '.join(updates)} WHERE id = ?"
+            cursor.execute(sql, (session_id,))
+
+        conn.commit()
+        return {"success": True, "sessionId": session_id, "cleared": True}
+    except Exception as e:
+        sys.stderr.write(f"Error clearing messages for session {session_id}: {e}\n")
+        return {"success": False, "error": str(e)}
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+def clear_session_messages(db_path_str, session_id):
+    print(json.dumps(do_clear_session_messages(db_path_str, session_id)))
+
 def query_messages(db_path_str, session_id):
     conn = get_db(db_path_str)
     if not conn:
@@ -871,6 +938,10 @@ def run_daemon():
                 db_p = req.get("dbPath") or ""
                 sid = req.get("sessionId") or ""
                 res_data = do_delete_session(db_p, sid)
+            elif action in ("clear_messages", "clearMessages", "clear"):
+                db_p = req.get("dbPath") or ""
+                sid = req.get("sessionId") or ""
+                res_data = do_clear_session_messages(db_p, sid)
             elif action == "skills":
                 h_home = req.get("hermesHome") or ""
                 res_data = query_skills(h_home)
@@ -946,6 +1017,18 @@ if __name__ == "__main__":
             db_path = ""
             sid = ""
         delete_session(db_path, sid)
+    elif action in ("clear_messages", "clear-messages", "clear"):
+        args = sys.argv[2:]
+        if len(args) >= 2:
+            db_path = args[0]
+            sid = args[1]
+        elif len(args) == 1:
+            db_path = ""
+            sid = args[0]
+        else:
+            db_path = ""
+            sid = ""
+        clear_session_messages(db_path, sid)
     elif action == "save_model":
         args = sys.argv[2:]
         if len(args) > 0 and Path(args[0]).is_dir():

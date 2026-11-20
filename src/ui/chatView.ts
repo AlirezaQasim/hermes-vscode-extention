@@ -700,8 +700,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async handleClearChat(sessionIdFromMsg?: string): Promise<void> {
-        this.logger.info('Clearing chat messages and active turn state...');
-        const sidToDelete = sessionIdFromMsg || this.currentSessionId;
+        this.logger.info('Clearing conversation message history and active turn state...');
+        const sid = sessionIdFromMsg || this.currentSessionId;
         this.messages = [];
         this.pendingAgentMessage = '';
         this.pendingThinking = '';
@@ -712,20 +712,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             await this.cancelTurn();
         } catch {}
 
-        if (sidToDelete) {
+        if (sid) {
             try {
-                this.logger.info(`Deleting cleared session ${sidToDelete} from DB...`);
-                await this.sessionService.deleteSession(sidToDelete);
-                this.allSessions = this.allSessions.filter(s => s.id !== sidToDelete);
+                this.logger.info(`Purging message history for session ${sid} from DB...`);
+                await this.sessionService.clearSessionMessages(sid);
+                const target = this.allSessions.find(s => s.id === sid);
+                if (target) {
+                    target.messageCount = 0;
+                }
             } catch (err) {
-                this.logger.warn(`Failed to delete session ${sidToDelete} from DB on clearChat:`, err);
+                this.logger.warn(`Failed to clear messages for session ${sid} from DB:`, err);
             }
+            this.currentSessionId = sid;
+        } else {
+            await this.createNewSession();
         }
-
-        this.currentSessionId = null;
-
-        // Create a fresh clean session so history cannot be resurrected from Sessions tab
-        await this.createNewSession();
 
         const ctx = this.getContext ? this.getContext() : (global as any).hermesExtensionContext;
         ctx?.sessionsProvider?.refresh();
@@ -734,7 +735,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         if (this.view?.webview) {
             this.view.webview.postMessage({
-                type: 'chatCleared'
+                type: 'chatCleared',
+                sessionId: this.currentSessionId
             });
         }
     }

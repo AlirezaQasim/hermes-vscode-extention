@@ -16,8 +16,9 @@ describe('SessionService', () => {
         }
     });
 
-    it('should initialize and have deleteSession and archiveSession methods', () => {
+    it('should initialize and have deleteSession, clearSessionMessages, and archiveSession methods', () => {
         expect(typeof sessionService.deleteSession).toBe('function');
+        expect(typeof sessionService.clearSessionMessages).toBe('function');
         expect(typeof sessionService.archiveSession).toBe('function');
         expect(typeof sessionService.getSessions).toBe('function');
         expect(typeof sessionService.getSessionMessages).toBe('function');
@@ -30,6 +31,11 @@ describe('SessionService', () => {
 
     it('should safely handle deleteSession for non-existent session ID without crashing', async () => {
         const result = await sessionService.deleteSession('non-existent-test-uuid-999');
+        expect(typeof result).toBe('boolean');
+    });
+
+    it('should safely handle clearSessionMessages for non-existent session ID without crashing', async () => {
+        const result = await sessionService.clearSessionMessages('non-existent-test-uuid-999');
         expect(typeof result).toBe('boolean');
     });
 

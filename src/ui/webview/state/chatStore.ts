@@ -61,8 +61,6 @@ export function clearMessages(): void {
     const sid = get(currentSessionId);
     messages.set([]);
     attachmentsStore.set([]);
-    currentSessionId.set(null);
-    sessionTitle.set('');
     isStreaming.set(false);
     postToHost({ type: 'clearChat', sessionId: sid || undefined });
 }

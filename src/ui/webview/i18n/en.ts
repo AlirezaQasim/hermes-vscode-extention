@@ -123,9 +123,9 @@ export const en: Record<string, string> = {
     'modal.confirm': 'Confirm',
     'modal.deleteSession': 'Are you sure you want to permanently delete this session? Messages cannot be recovered.',
     'modal.archiveSession': 'Are you sure you want to archive this session?',
-    'modal.clearChat': 'Are you sure you want to permanently clear this conversation history? All messages will be deleted and this action cannot be undone.',
-    'modal.clearChatConfirm': 'Clear History',
-    'modal.clearChatSuccess': 'Conversation history permanently cleared',
+    'modal.clearChat': 'Are you sure you want to clear all messages in this conversation? All messages will be permanently deleted, but this session will be preserved.',
+    'modal.clearChatConfirm': 'Clear Messages',
+    'modal.clearChatSuccess': 'Conversation message history cleared',
 
     // Footer Bar
     'footer.agent': 'HERMES / v1.0.4',

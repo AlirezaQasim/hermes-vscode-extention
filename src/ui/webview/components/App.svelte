@@ -135,7 +135,10 @@
                 messages.set([]);
                 attachmentsStore.set([]);
                 isStreaming.set(false);
-                showToast('سابقه گفتگو پاکسازی شد');
+                if (data.sessionId) {
+                    currentSessionId.set(data.sessionId);
+                }
+                showToast(t('modal.clearChatSuccess'));
                 return;
             }
 

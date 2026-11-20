@@ -146,8 +146,8 @@ const CURATED_STATIC_MODELS: Record<string, string[]> = {
         'z-ai/glm-5.3'
     ],
     gemini: [
-        'gemini-3.8-flash', 'gemini-4-hydrogen', 'gemini-4-carbon', 'gemini-4-argon', 'gemini-3.7-flash',
-        'gemini-3.1-pro-preview', 'gemini-3-pro-preview', 'gemini-3.6-flash', 'gemini-3.1-flash-lite-preview'
+        'gemini-3.8-flash', 'gemini-4-neon', 'gemini-4-hydrogen', 'gemini-4-carbon', 'gemini-4-argon', 'gemini-3.7-flash',
+        'gemini-3.1-pro-preview', 'gemini-3-pro-preview', 'gemini-3.6-flash', 'gemini-3.1-flash-lite-preview', 'gemma-4-31b-it'
     ],
     anthropic: [
         'claude-fable-5-2', 'claude-fable-5.1', 'claude-fable-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5',
