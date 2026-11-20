@@ -468,7 +468,26 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     updateTokenUsage(usage: any): void {
-        this.tokenUsage = usage;
+        const activeModel = this.modelConfig?.current?.model || '';
+        const activeProvider = this.modelConfig?.current?.provider || '';
+        const maxContext = this.configService.resolveModelContextCeiling(
+            activeModel,
+            activeProvider,
+            usage?.maxContextTokens || usage?.size
+        );
+        const prompt = usage?.promptTokens || usage?.prompt || 0;
+        const completion = usage?.completionTokens || usage?.completion || 0;
+        const total = usage?.totalTokens || usage?.total || (prompt + completion);
+        const percentUsed = maxContext > 0 ? Math.min(100, Math.round((total / maxContext) * 1000) / 10) : 0;
+
+        this.tokenUsage = {
+            prompt,
+            completion,
+            total,
+            maxContext,
+            percentUsed,
+            cachedTokens: usage?.cachedTokens
+        };
         this.refresh();
     }
 
@@ -654,6 +673,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             case 'clearHistory':
                 await this.handleClearChat(message.sessionId);
                 break;
+            case 'compressContext':
+                await this.handleCompressContext();
+                break;
         }
     }
 
@@ -738,6 +760,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 type: 'chatCleared',
                 sessionId: this.currentSessionId
             });
+        }
+    }
+
+    private async handleCompressContext(): Promise<void> {
+        if (!this.currentSessionId) {
+            vscode.window.showWarningMessage('ابتدا یک گفتگو انتخاب کنید.');
+            return;
+        }
+        const ctx = this.getContext ? this.getContext() : (global as any).hermesExtensionContext;
+        if (!ctx?.client) {
+            vscode.window.showErrorMessage('اتصال به کلاینت هرمس برقرار نیست.');
+            return;
+        }
+
+        try {
+            this.logger.info(`Invoking context compression for session: ${this.currentSessionId}`);
+            vscode.window.showInformationMessage('⏳ در حال فشرده‌سازی هوشمند کانتکست توسط هرمس...');
+            await ctx.client.compressContext(this.currentSessionId);
+            await this.loadSessionMessages(this.currentSessionId);
+            await this.loadDashboardData();
+            this.refresh();
+            if (this.view?.webview) {
+                this.view.webview.postMessage({
+                    type: 'contextCompressed',
+                    sessionId: this.currentSessionId
+                });
+            }
+            vscode.window.showInformationMessage('✓ کانتکست با موفقیت فشرده شد و حافظه آزاد گردید.');
+        } catch (error: any) {
+            this.logger.error('Failed to compress context:', error);
+            vscode.window.showErrorMessage(`خطا در فشرده‌سازی کانتکست: ${error?.message || error}`);
         }
     }
 

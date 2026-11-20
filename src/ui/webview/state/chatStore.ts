@@ -1,11 +1,11 @@
 import { writable, get } from 'svelte/store';
-import type { ChatMessage, AttachmentItem, ProjectFolderItem } from '../types';
+import type { ChatMessage, AttachmentItem, ProjectFolderItem, TokenUsageMetrics } from '../types';
 import { postToHost } from './uiStore';
 
 export const messages = writable<ChatMessage[]>([]);
 export const currentSessionId = writable<string | null>(null);
 export const sessionTitle = writable<string>('');
-export const tokenUsage = writable<{ prompt: number; completion: number; total: number } | null>(null);
+export const tokenUsage = writable<TokenUsageMetrics | null>(null);
 export const isStreaming = writable<boolean>(false);
 export const attachmentsStore = writable<AttachmentItem[]>([]);
 export const projectFoldersStore = writable<ProjectFolderItem[]>([]);
@@ -63,4 +63,8 @@ export function clearMessages(): void {
     attachmentsStore.set([]);
     isStreaming.set(false);
     postToHost({ type: 'clearChat', sessionId: sid || undefined });
+}
+
+export function requestContextCompression(): void {
+    postToHost({ type: 'compressContext' });
 }

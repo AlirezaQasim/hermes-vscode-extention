@@ -1331,6 +1331,106 @@ body.vscode-light .command-capsule {
     max-width: 95px;
 }
 
+.capsule-context-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: rgba(16, 185, 129, 0.08);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    color: #34d399;
+    border-radius: 8px;
+    padding: 3px 6px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: monospace;
+    white-space: nowrap;
+    flex-shrink: 0;
+    max-width: 180px;
+}
+
+.capsule-context-pill.warning {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.4);
+    color: #fbbf24;
+}
+
+.capsule-context-pill.critical {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.5);
+    color: #f87171;
+}
+
+.capsule-context-pill:hover {
+    background: rgba(16, 185, 129, 0.18);
+    border-color: rgba(16, 185, 129, 0.5);
+}
+
+.capsule-context-pill.warning:hover {
+    background: rgba(245, 158, 11, 0.22);
+}
+
+.capsule-context-pill.critical:hover {
+    background: rgba(239, 68, 68, 0.25);
+}
+
+.compress-action-tag {
+    background: rgba(245, 185, 66, 0.2);
+    border: 1px solid rgba(245, 185, 66, 0.4);
+    color: #fbbf24;
+    padding: 1px 4px;
+    border-radius: 4px;
+    font-size: 10px;
+    margin-right: 2px;
+}
+
+.context-alert-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    margin: 8px 16px;
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.4;
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    color: #fef3c7;
+    backdrop-filter: blur(8px);
+    gap: 10px;
+}
+
+.context-alert-banner.critical {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.5);
+    color: #fee2e2;
+}
+
+.context-alert-banner .alert-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+
+.context-alert-banner .btn-compress-action {
+    background: var(--hermes-gold);
+    color: #000;
+    font-weight: 600;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s;
+}
+
+.context-alert-banner .btn-compress-action:hover {
+    filter: brightness(1.15);
+    transform: translateY(-1px);
+}
+
 .capsule-reasoning-pill .model-pill-name {
     display: inline-block;
     max-width: 50px;

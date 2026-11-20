@@ -1,7 +1,7 @@
 <script>
     import { onMount } from 'svelte';
-    import { activeTab, isConnected, autoApproveSetting, cwdSetting, appVersion, agentActivity, modalStore, closeModal, toastStore, showToast, voiceTranscriptStore, postToHost } from '../state/uiStore';
-    import { messages, currentSessionId, sessionTitle, tokenUsage, isStreaming, attachmentsStore, addAttachment, projectFoldersStore, currentCwdStore } from '../state/chatStore';
+    import { activeTab, isConnected, autoApproveSetting, cwdSetting, appVersion, agentActivity, modalStore, openModal, closeModal, toastStore, showToast, voiceTranscriptStore, postToHost } from '../state/uiStore';
+    import { messages, currentSessionId, sessionTitle, tokenUsage, isStreaming, attachmentsStore, addAttachment, projectFoldersStore, currentCwdStore, requestContextCompression } from '../state/chatStore';
     import { sessionsList } from '../state/sessionStore';
     import { skillsList } from '../state/skillStore';
     import { modelConfigStore, selectedReasoningEffort } from '../state/modelStore';
@@ -142,6 +142,15 @@
                 return;
             }
 
+            if (data.type === 'contextCompressed') {
+                if (data.success) {
+                    showToast(t('modal.compressSuccess'));
+                } else {
+                    showToast(`⚠️ ${data.error || 'خطا در فشرده‌سازی زمینه'}`);
+                }
+                return;
+            }
+
             if (data.type === 'voiceRecordingState') {
                 if (data.state === 'recording') {
                     showToast('🎙️ در حال ضبط صدا از میکروفون سیستم...');
@@ -225,6 +234,20 @@
     function handleRunSetup() {
         postToHost({ type: 'runSetupTerminal' });
     }
+
+    function handleCompressFromBanner() {
+        openModal({
+            icon: '🗜️',
+            title: t('modal.compressTitle'),
+            message: t('modal.compressMessage'),
+            confirmLabel: t('modal.compressConfirm'),
+            cancelLabel: t('modal.cancel'),
+            onConfirm: () => {
+                requestContextCompression();
+                showToast(t('modal.compressingInProgress'));
+            }
+        });
+    }
 </script>
 
 <div id="app-container" lang={$locale} dir={$direction}>
@@ -247,6 +270,23 @@
                         </button>
                     </div>
                 </div>
+            </div>
+        {/if}
+
+        <!-- Context Overflow Alert Banner -->
+        {#if $tokenUsage && $tokenUsage.percentUsed >= 75 && $activeTab === 'chat'}
+            <div class="context-alert-banner {$tokenUsage.percentUsed >= 85 ? 'critical' : 'warning'}">
+                <div class="alert-content">
+                    <span>{$tokenUsage.percentUsed >= 85 ? '🚨' : '⚠️'}</span>
+                    <span>
+                        {t('banner.contextOverflowTitle')}: 
+                        <strong>{$tokenUsage.percentUsed}%</strong> 
+                        ({t('banner.contextOverflowDesc')})
+                    </span>
+                </div>
+                <button type="button" class="btn-compress-action" on:click={handleCompressFromBanner}>
+                    🗜️ {t('banner.compressAction')}
+                </button>
             </div>
         {/if}
 

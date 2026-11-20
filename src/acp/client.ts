@@ -92,6 +92,9 @@ export interface ACPTokenUsage {
     promptTokens: number;
     completionTokens: number;
     totalTokens: number;
+    maxContextTokens?: number;
+    cachedTokens?: number;
+    size?: number;
 }
 
 export class HermesACPClient extends EventEmitter {
@@ -521,6 +524,15 @@ export class HermesACPClient extends EventEmitter {
                     this.emit('toolCallUpdate', toolUpdate, sessionId);
                 } else if (updateKind === 'plan') {
                     this.emit('planUpdate', updatePayload.entries || updatePayload.content, sessionId);
+                } else if (updateKind === 'usage_update' || updateKind === 'usage') {
+                    const usage: ACPTokenUsage = {
+                        promptTokens: updatePayload.inputTokens || updatePayload.promptTokens || updatePayload.used || 0,
+                        completionTokens: updatePayload.outputTokens || updatePayload.completionTokens || 0,
+                        totalTokens: updatePayload.totalTokens || updatePayload.used || 0,
+                        maxContextTokens: updatePayload.size || updatePayload.modelContextWindow,
+                        cachedTokens: updatePayload.cachedTokens || updatePayload.cachedInputTokens
+                    };
+                    this.emit('tokenUsage', usage);
                 }
                 break;
             }
@@ -533,9 +545,18 @@ export class HermesACPClient extends EventEmitter {
                 this.emit('toolCall', params);
                 break;
             case 'token/usage':
-            case 'usage/update':
-                this.emit('tokenUsage', params);
+            case 'usage/update': {
+                const u = params?.usage || params || {};
+                const usage: ACPTokenUsage = {
+                    promptTokens: u.promptTokens || u.inputTokens || u.used || 0,
+                    completionTokens: u.completionTokens || u.outputTokens || 0,
+                    totalTokens: u.totalTokens || u.used || ((u.inputTokens || 0) + (u.outputTokens || 0)),
+                    maxContextTokens: u.size || u.maxContextTokens || u.modelContextWindow,
+                    cachedTokens: u.cachedTokens || u.cachedInputTokens
+                };
+                this.emit('tokenUsage', usage);
                 break;
+            }
             default:
                 this.logger.debug(`Unhandled notification: ${method}`, params);
         }
@@ -705,10 +726,27 @@ export class HermesACPClient extends EventEmitter {
         }
 
         // Prompts can take several minutes to generate and execute tools
-        return await this.sendRequest('session/prompt', {
+        const result = await this.sendRequest('session/prompt', {
             sessionId,
             prompt: promptItems
         }, 180000);
+
+        if (result && result.usage) {
+            const u = result.usage;
+            this.emit('tokenUsage', {
+                promptTokens: u.inputTokens || u.promptTokens || 0,
+                completionTokens: u.outputTokens || u.completionTokens || 0,
+                totalTokens: u.totalTokens || ((u.inputTokens || 0) + (u.outputTokens || 0)),
+                cachedTokens: u.cachedInputTokens || u.cachedTokens
+            });
+        }
+
+        return result;
+    }
+
+    async compressContext(sessionId: string): Promise<any> {
+        this.logger.info(`Requesting context compression (/compress) for session: ${sessionId}`);
+        return await this.sendPrompt(sessionId, '/compress');
     }
 
     async cancelTurn(sessionId: string): Promise<void> {

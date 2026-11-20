@@ -126,6 +126,16 @@ export const fa: Record<string, string> = {
     'modal.clearChat': 'آیا از پاک کردن سابقه پیام‌های این گفتگو اطمینان دارید؟ تمام پیام‌ها برای همیشه پاک خواهند شد اما این گفتگو حفظ می‌شود.',
     'modal.clearChatConfirm': 'پاک کردن پیام‌ها',
     'modal.clearChatSuccess': 'سابقه پیام‌های گفتگو پاکسازی شد',
+    'modal.compressTitle': 'فشرده‌سازی هوشمند پنجره زمینه',
+    'modal.compressMessage': 'آیا مایلید پنجره زمینه فشرده‌سازی شود؟ این عملیات خروجی ابزارها و پیام‌های طولانی پیشین را بدون پاک کردن حافظه خلاصه کرده و فضای خالی باز می‌کند.',
+    'modal.compressConfirm': 'فشرده‌سازی زمینه',
+    'modal.compressingInProgress': 'در حال فشرده‌سازی پنجره زمینه با هرمس...',
+    'modal.compressSuccess': '✅ پنجره زمینه با موفقیت فشرده و بازسازی شد.',
+
+    // Context HUD & Compaction Banner
+    'banner.contextOverflowTitle': 'حجم پنجره زمینه بالا است',
+    'banner.contextOverflowDesc': 'پیشنهاد می‌شود برای جلوگیری از کندی یا افت کیفیت، گفتگو فشرده‌سازی شود.',
+    'banner.compressAction': 'فشرده‌سازی هوشمند',
 
     // Footer Bar
     'footer.agent': 'HERMES / v1.0.4',

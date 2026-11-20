@@ -62,6 +62,22 @@
         $apiKeyInput = '';
     }
 
+    const effortLabels = {
+        minimal: '1. minimal (حداقل تفکر - سریع‌ترین پاسخ)',
+        low: '2. low (تفکر کوتاه - وظایف سبک و سریع)',
+        medium: '3. medium (استدلال متعادل)',
+        high: '4. high (استدلال عمیق و استاندارد - توصیه شده)',
+        xhigh: '5. xhigh (استدلال بسیار عمیق برای تحلیل پیچیده)',
+        max: '6. max (حداکثر توان استدلال مدل)',
+        ultra: '7. ultra (استدلال بی‌نهایت - سخت‌ترین الگوریتم‌ها)'
+    };
+
+    $: activeModelObj = provider?.models?.find((m) => m.id === $selectedModelId);
+    $: isReasoningSupported = activeModelObj ? (activeModelObj.reasoning !== false) : true;
+    $: rawEfforts = activeModelObj?.reasoningEfforts && activeModelObj.reasoningEfforts.length > 0 
+        ? activeModelObj.reasoningEfforts 
+        : ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+
     function handleReasoningEffortChange(e) {
         const val = e.target.value;
         $selectedReasoningEffort = val;
@@ -282,16 +298,17 @@
                 class="form-select" 
                 value={$selectedReasoningEffort} 
                 on:change={handleReasoningEffortChange}
+                disabled={!isReasoningSupported}
             >
-                <option value="minimal">1. minimal (حداقل تفکر - سریع‌ترین پاسخ)</option>
-                <option value="low">2. low (تفکر کوتاه - وظایف سبک و سریع)</option>
-                <option value="medium">3. medium (استدلال متعادل)</option>
-                <option value="high">4. high (استدلال عمیق و استاندارد - توصیه شده)</option>
-                <option value="xhigh">5. xhigh (استدلال بسیار عمیق برای تحلیل پیچیده)</option>
-                <option value="max">6. max (حداکثر توان استدلال مدل)</option>
-                <option value="ultra">7. ultra (استدلال بی‌نهایت - سخت‌ترین الگوریتم‌ها)</option>
-                <option value="none">8. Disable reasoning (غیرفعال‌سازی تفکر / بدون تگ think)</option>
-                <option value="default">9. Skip / Default (حفظ تنظیمات پیش‌فرض سیستم)</option>
+                {#if !isReasoningSupported}
+                    <option value="none">غیرفعال (این مدل از تفکر و استدلال پشتیبانی نمی‌کند)</option>
+                {:else}
+                    {#each rawEfforts as eff}
+                        <option value={eff}>{effortLabels[eff] || eff}</option>
+                    {/each}
+                    <option value="none">Disable reasoning (غیرفعال‌سازی تفکر / بدون تگ think)</option>
+                    <option value="default">Default / Skip (تنظیم پیش‌فرض سیستم)</option>
+                {/if}
             </select>
             <span class="form-help">این گزینه مستقیماً به پروتکل ACP و تنظیمات config.yaml متصل است و عمق تفکر مدل‌های استدلالی (مانند Nemotron Ultra، DeepSeek R1، و Claude Thinking) را در پاسخ‌دهی کنترل می‌کند.</span>
         </div>

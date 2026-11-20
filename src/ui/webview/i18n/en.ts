@@ -126,6 +126,16 @@ export const en: Record<string, string> = {
     'modal.clearChat': 'Are you sure you want to clear all messages in this conversation? All messages will be permanently deleted, but this session will be preserved.',
     'modal.clearChatConfirm': 'Clear Messages',
     'modal.clearChatSuccess': 'Conversation message history cleared',
+    'modal.compressTitle': 'Smart Context Compaction',
+    'modal.compressMessage': 'Do you want to compact the context window? This summarizes bulky tool outputs and prior turns without losing conversation memory, freeing up context capacity.',
+    'modal.compressConfirm': 'Compact Context',
+    'modal.compressingInProgress': 'Compacting context window with Hermes...',
+    'modal.compressSuccess': '✅ Context window successfully compacted and refreshed.',
+
+    // Context HUD & Compaction Banner
+    'banner.contextOverflowTitle': 'Context Window High Usage',
+    'banner.contextOverflowDesc': 'Compacting is recommended to prevent latency and quality degradation.',
+    'banner.compressAction': 'Smart Compaction',
 
     // Footer Bar
     'footer.agent': 'HERMES / v1.0.4',

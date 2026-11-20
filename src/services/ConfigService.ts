@@ -4,6 +4,15 @@ import * as path from 'path';
 import type { Logger } from '../utils/logger';
 import { getHermesHome } from '../utils/hermesPaths';
 
+export interface ModelItem {
+    id: string;
+    name: string;
+    tag: string;
+    reasoning?: boolean;
+    reasoningEfforts?: string[];
+    contextLimit?: number;
+}
+
 export interface ModelProviderInfo {
     id: string;
     name: string;
@@ -12,11 +21,7 @@ export interface ModelProviderInfo {
     keyMasked: string;
     baseUrl: string;
     docUrl: string;
-    models: Array<{
-        id: string;
-        name: string;
-        tag: string;
-    }>;
+    models: ModelItem[];
 }
 
 export interface ModelConfigData {
@@ -312,7 +317,7 @@ export class ConfigService extends EventEmitter {
             const hasKey = Boolean(rawKey) || pid === 'ollama' || pid.includes('oauth') || pid === 'openai-codex';
             const keyMasked = rawKey ? this.maskKey(rawKey) : (pid === 'ollama' ? 'Local' : (pid.includes('oauth') ? 'OAuth / CLI' : ''));
 
-            let modelsList: Array<{ id: string; name: string; tag: string }> = [];
+            let modelsList: ModelItem[] = [];
 
             // A. Check models.dev authoritative cache first
             const mdevKey = PROVIDER_TO_MODELS_DEV[pid] || pid;
@@ -339,11 +344,29 @@ export class ConfigService extends EventEmitter {
 
                 const resolvedIds = Array.from(mergedMap.values());
                 if (resolvedIds.length > 0) {
-                    modelsList = resolvedIds.map((mid) => ({
-                        id: mid,
-                        name: this.cleanModelName(mid),
-                        tag: this.categorizeModel(mid)
-                    }));
+                    modelsList = resolvedIds.map((mid) => {
+                        const rawEntry = rawModels[mid] || rawModels[mid.toLowerCase()];
+                        const reasoning = rawEntry ? (rawEntry.reasoning === true) : undefined;
+                        let reasoningEfforts: string[] | undefined = undefined;
+                        if (rawEntry && Array.isArray(rawEntry.reasoning_options)) {
+                            const effortOpt = rawEntry.reasoning_options.find((o: any) => o && o.type === 'effort');
+                            if (effortOpt && Array.isArray(effortOpt.values) && effortOpt.values.length > 0) {
+                                reasoningEfforts = effortOpt.values;
+                            }
+                        }
+                        const contextLimit = rawEntry?.limit?.context && typeof rawEntry.limit.context === 'number'
+                            ? rawEntry.limit.context
+                            : undefined;
+
+                        return {
+                            id: mid,
+                            name: this.cleanModelName(mid),
+                            tag: this.categorizeModel(mid),
+                            reasoning,
+                            reasoningEfforts,
+                            contextLimit
+                        };
+                    });
                 }
             }
 
@@ -385,6 +408,91 @@ export class ConfigService extends EventEmitter {
             },
             providers: providersOut
         };
+    }
+
+    /**
+     * Resolves the maximum context window ceiling for a model using the 4-Tier Zero-Failure pipeline:
+     * Tier 1: Live ACP Wire size if reported by the running session.
+     * Tier 2: Hermes authoritative cache (models_dev_cache.json -> limit.context).
+     * Tier 3: Ollama / Local metadata cache (ollama_cloud_models_cache.json -> num_ctx / context_length).
+     * Tier 4: Family-Heuristic name matching + safe 128,000 baseline guardrail.
+     */
+    public resolveModelContextCeiling(modelId: string, provider?: string, liveAcpSize?: number): number {
+        if (typeof liveAcpSize === 'number' && liveAcpSize > 0) {
+            return liveAcpSize;
+        }
+
+        const mid = (modelId || '').trim();
+        if (!mid) {
+            return 128000;
+        }
+
+        // Tier 2: Check models_dev_cache.json
+        try {
+            const modelsDevFile = path.join(this.hermesHome, 'models_dev_cache.json');
+            if (fs.existsSync(modelsDevFile)) {
+                const devData = JSON.parse(fs.readFileSync(modelsDevFile, 'utf8'));
+                const provKey = provider ? (PROVIDER_TO_MODELS_DEV[provider] || provider) : null;
+                const searchProviders = provKey && devData[provKey] ? [devData[provKey]] : Object.values(devData);
+
+                for (const p of searchProviders) {
+                    if (p && typeof p === 'object' && p.models) {
+                        const mObj = p.models[mid] || p.models[mid.toLowerCase()];
+                        if (mObj?.limit?.context && typeof mObj.limit.context === 'number' && mObj.limit.context > 0) {
+                            return mObj.limit.context;
+                        }
+                        for (const candidate of Object.values<any>(p.models)) {
+                            if (candidate && (candidate.id === mid || candidate.canonical_model_id === mid)) {
+                                if (candidate.limit?.context && typeof candidate.limit.context === 'number' && candidate.limit.context > 0) {
+                                    return candidate.limit.context;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch {
+            // Ignore parse errors and fall through
+        }
+
+        // Tier 3: Ollama local metadata cache (ollama_cloud_models_cache.json)
+        try {
+            const ollamaCacheFile = path.join(this.hermesHome, 'ollama_cloud_models_cache.json');
+            if (fs.existsSync(ollamaCacheFile)) {
+                const oData = JSON.parse(fs.readFileSync(ollamaCacheFile, 'utf8'));
+                if (oData && typeof oData === 'object') {
+                    const oModel = oData[mid] || oData[mid.toLowerCase()];
+                    if (oModel?.num_ctx && typeof oModel.num_ctx === 'number' && oModel.num_ctx > 0) {
+                        return oModel.num_ctx;
+                    }
+                    if (oModel?.context_length && typeof oModel.context_length === 'number' && oModel.context_length > 0) {
+                        return oModel.context_length;
+                    }
+                }
+            }
+        } catch {
+            // Fall through
+        }
+
+        // Tier 4: Family-Heuristics Regex Matching
+        const lower = mid.toLowerCase();
+        if (lower.includes('gemini-1.5') || lower.includes('gemini-2') || lower.includes('gemini-3') || lower.includes('gemini-4') || lower.includes('argon') || lower.includes('neon')) {
+            return 1048576; // 1M tokens
+        }
+        if (lower.includes('claude-3') || lower.includes('claude-4') || lower.includes('claude-5') || lower.includes('sonnet') || lower.includes('opus')) {
+            return 200000; // 200k tokens
+        }
+        if (lower.includes('gpt-4o') || lower.includes('gpt-5') || lower.includes('gpt-6') || lower.includes('o1') || lower.includes('o3')) {
+            return 128000;
+        }
+        if (lower.includes('nemotron') || lower.includes('deepseek') || lower.includes('qwen') || lower.includes('llama-3') || lower.includes('mistral-large')) {
+            return 131072; // 128k tokens
+        }
+        if (lower.includes('mini') || lower.includes('nano') || lower.includes('small') || lower.includes('8b') || lower.includes('7b')) {
+            return 32768; // 32k tokens
+        }
+
+        return 128000;
     }
 
     public async saveReasoningEffort(effort: string): Promise<boolean> {

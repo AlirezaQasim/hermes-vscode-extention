@@ -64,6 +64,15 @@ export interface SkillInfo {
     isLearned?: boolean;
 }
 
+export interface ModelItem {
+    id: string;
+    name: string;
+    tag: string;
+    reasoning?: boolean;
+    reasoningEfforts?: string[];
+    contextLimit?: number;
+}
+
 export interface ModelProviderInfo {
     id: string;
     name: string;
@@ -72,11 +81,7 @@ export interface ModelProviderInfo {
     keyMasked: string;
     baseUrl: string;
     docUrl: string;
-    models: Array<{
-        id: string;
-        name: string;
-        tag: string;
-    }>;
+    models: ModelItem[];
 }
 
 export interface ModelConfigData {
@@ -87,6 +92,15 @@ export interface ModelConfigData {
         reasoningEffort?: string;
     };
     providers: ModelProviderInfo[];
+}
+
+export interface TokenUsageMetrics {
+    prompt: number;
+    completion: number;
+    total: number;
+    maxContext: number;
+    percentUsed: number;
+    cachedTokens?: number;
 }
 
 export interface ExtensionConfig {
@@ -101,7 +115,7 @@ export interface HostUpdateMessage {
     connected?: boolean;
     sessionId?: string | null;
     sessionTitle?: string;
-    tokenUsage?: { prompt: number; completion: number; total: number } | null;
+    tokenUsage?: TokenUsageMetrics | null;
     modelConfig?: ModelConfigData | null;
     sessions?: HermesSession[];
     skills?: SkillInfo[];
@@ -113,6 +127,7 @@ export type WebviewToHostMessage =
     | { type: 'cancelTurn' }
     | { type: 'newSession' }
     | { type: 'clearChat'; sessionId?: string }
+    | { type: 'compressContext' }
     | { type: 'openSkillFile'; skillPath: string }
     | { type: 'loadSession'; sessionId: string }
     | { type: 'archiveSession'; sessionId: string; archive: boolean }

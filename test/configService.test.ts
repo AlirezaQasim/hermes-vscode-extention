@@ -84,4 +84,36 @@ describe('ConfigService', () => {
             expect(restoredEnv['OPENROUTER_API_KEY']).toBe(originalKey);
         }
     });
+
+    it('should resolve model context ceiling across 4-tier pipeline', async () => {
+        // Tier 1: Live ACP Wire value takes precedence
+        const tier1 = await service.resolveModelContextCeiling('gemini-2.5-flash', 'gemini', 65536);
+        expect(tier1).toBe(65536);
+
+        // Tier 2: Hermes Authoritative Cache
+        const tier2 = await service.resolveModelContextCeiling('gemini-2.5-pro', 'gemini');
+        expect(tier2).toBeGreaterThanOrEqual(128000);
+
+        // Tier 4: Heuristics fallback
+        const geminiHeuristic = await service.resolveModelContextCeiling('gemini-1.5-pro-unknown-custom');
+        expect(geminiHeuristic).toBe(1048576);
+
+        const claudeHeuristic = await service.resolveModelContextCeiling('anthropic/claude-3-7-sonnet-custom');
+        expect(claudeHeuristic).toBe(200000);
+
+        const defaultBaseline = await service.resolveModelContextCeiling('completely-unknown-custom-model-xyz');
+        expect(defaultBaseline).toBe(128000);
+    });
+
+    it('should populate reasoning and contextLimit attributes in model items', async () => {
+        const config = await service.getModelConfig();
+        const gemini = config.providers.find(p => p.id === 'gemini');
+        expect(gemini).toBeDefined();
+        if (gemini && gemini.models.length > 0) {
+            const firstModel = gemini.models[0];
+            expect(typeof firstModel.id).toBe('string');
+            expect(typeof firstModel.contextLimit).toBe('number');
+            expect(firstModel.contextLimit).toBeGreaterThan(0);
+        }
+    });
 });

@@ -13,7 +13,9 @@
         projectFoldersStore, 
         currentCwdStore, 
         setCwd, 
-        requestProjectFolders 
+        requestProjectFolders,
+        tokenUsage,
+        requestContextCompression 
     } from '../../state/chatStore';
     import { modelConfigStore, selectedReasoningEffort } from '../../state/modelStore';
     import { activeTab, isConnected, postToHost, showToast, voiceTranscriptStore, appVersion, openModal } from '../../state/uiStore';
@@ -36,6 +38,19 @@
 
     $: currentModelName = $modelConfigStore?.current?.model || 'nemotron-3-ultra';
     $: cleanModel = currentModelName.split('/').pop()?.replace(/:free$/i, '') || currentModelName;
+
+    function formatTokens(num) {
+        if (!num || num <= 0) return '0';
+        if (num >= 1000000) return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+        if (num >= 1000) return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+        return String(num);
+    }
+
+    $: contextTotal = $tokenUsage?.total || 0;
+    $: contextMax = $tokenUsage?.maxContext || 128000;
+    $: contextPercent = $tokenUsage?.percentUsed !== undefined ? $tokenUsage.percentUsed : (contextMax > 0 ? Math.min(100, Math.round((contextTotal / contextMax) * 1000) / 10) : 0);
+    $: contextHealth = contextPercent >= 85 ? 'critical' : (contextPercent >= 70 ? 'warning' : 'healthy');
+    $: contextIcon = contextPercent >= 85 ? '🚨' : (contextPercent >= 70 ? '⚠️' : '⚡');
 
     $: displayCwd = $currentCwdStore
         ? ($currentCwdStore.replace(/\\/g, '/').split('/').filter(Boolean).pop() || 'root')
@@ -296,6 +311,20 @@
             }
         });
     }
+
+    function handleQuickCompress() {
+        openModal({
+            icon: '🗜️',
+            title: t('modal.compressTitle'),
+            message: t('modal.compressMessage'),
+            confirmLabel: t('modal.compressConfirm'),
+            cancelLabel: t('modal.cancel'),
+            onConfirm: () => {
+                requestContextCompression();
+                showToast(t('modal.compressingInProgress'));
+            }
+        });
+    }
 </script>
 
 <div id="command-capsule-wrapper" class="command-capsule-wrapper">
@@ -389,6 +418,23 @@
                     <span class="model-pill-icon">🧠</span>
                     <span class="model-pill-name" id="capsule-reasoning-name">{$selectedReasoningEffort || 'high'}</span>
                 </button>
+
+                <!-- Context Window HUD & Smart Compaction Meter -->
+                {#if contextTotal > 0}
+                    <button 
+                        type="button" 
+                        class="capsule-model-pill capsule-context-pill {contextHealth}" 
+                        id="capsule-context-pill" 
+                        title="پنجره زمینه: {formatTokens(contextTotal)} / {formatTokens(contextMax)} ({contextPercent}% پر شده)&#10;ورودی: {formatTokens($tokenUsage?.prompt || 0)} | خروجی: {formatTokens($tokenUsage?.completion || 0)}"
+                        on:click={handleQuickCompress}
+                    >
+                        <span class="model-pill-icon">{contextIcon}</span>
+                        <span class="model-pill-name">{formatTokens(contextTotal)} / {formatTokens(contextMax)} ({contextPercent}%)</span>
+                        {#if contextPercent >= 70}
+                            <span class="compress-action-tag" title="فشرده‌سازی هوشمند">🗜️</span>
+                        {/if}
+                    </button>
+                {/if}
 
                 <!-- Visual CWD Selector Chip -->
                 <div style="position: relative; display: inline-flex; flex-shrink: 0;">
