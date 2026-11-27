@@ -1,6 +1,6 @@
 <script>
     import { createEventDispatcher } from 'svelte';
-    import { startNewSession } from '../../state/chatStore';
+    import { startNewSession, clearMessages, requestContextCompression } from '../../state/chatStore';
     import { activeTab, postToHost, autoApproveSetting, showToast } from '../../state/uiStore';
     import { t } from '../../i18n';
 
@@ -16,6 +16,12 @@
         if (cmd === '/new') {
             startNewSession();
             showToast('گفتگوی جدید آغاز شد');
+        } else if (cmd === '/clear') {
+            clearMessages();
+            showToast(t('modal.clearChatSuccess'));
+        } else if (cmd === '/compress') {
+            requestContextCompression();
+            showToast(t('modal.compressingInProgress'));
         } else if (cmd === '/model') {
             $activeTab = 'models';
         } else if (cmd === '/skills') {
@@ -42,6 +48,16 @@
             <div class="popup-item" on:click={() => selectCommand('/new')} on:keydown={(e) => { if (e.key === 'Enter') selectCommand('/new'); }} role="button" tabindex="0">
                 <span class="cmd-name">/new</span>
                 <span class="cmd-desc">شروع گفت‌وگوی تازه (New Session)</span>
+                <span class="cmd-key">↵</span>
+            </div>
+            <div class="popup-item" on:click={() => selectCommand('/clear')} on:keydown={(e) => { if (e.key === 'Enter') selectCommand('/clear'); }} role="button" tabindex="0">
+                <span class="cmd-name">/clear</span>
+                <span class="cmd-desc">{t('cmd.clear.desc')}</span>
+                <span class="cmd-key">↵</span>
+            </div>
+            <div class="popup-item" on:click={() => selectCommand('/compress')} on:keydown={(e) => { if (e.key === 'Enter') selectCommand('/compress'); }} role="button" tabindex="0">
+                <span class="cmd-name">/compress</span>
+                <span class="cmd-desc">{t('cmd.compress.desc')}</span>
                 <span class="cmd-key">↵</span>
             </div>
             <div class="popup-item" on:click={() => selectCommand('/model')} on:keydown={(e) => { if (e.key === 'Enter') selectCommand('/model'); }} role="button" tabindex="0">

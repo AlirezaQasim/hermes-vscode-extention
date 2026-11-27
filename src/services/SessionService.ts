@@ -1,4 +1,4 @@
-import { ChildProcess, spawn } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Logger } from '../utils/logger';
@@ -16,6 +16,11 @@ export interface HermesSession {
     updatedAt: number;
     source?: string;
     archived?: boolean;
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadTokens?: number;
+    reasoningTokens?: number;
+    apiCallCount?: number;
 }
 
 interface PendingRequest {
@@ -132,7 +137,7 @@ export class SessionService {
         }
     }
 
-    private sendRequest(action: string, params: Record<string, any> = {}): Promise<any> {
+    private sendRequest(action: string, params: Record<string, any> = {}, timeoutMs: number = 15000): Promise<any> {
         return new Promise((resolve, reject) => {
             this.ensureDaemonStarted();
             if (!this.daemonProcess || !this.daemonProcess.stdin || !this.daemonProcess.stdin.writable) {
@@ -153,7 +158,7 @@ export class SessionService {
                     this.pendingRequests.delete(reqId);
                     reject(new Error(`Timeout waiting for daemon response on action "${action}"`));
                 }
-            }, 15000);
+            }, timeoutMs);
 
             this.pendingRequests.set(reqId, { resolve, reject, timer });
             this.daemonProcess.stdin.write(JSON.stringify(payload) + '\n');
@@ -177,7 +182,12 @@ export class SessionService {
                 source: r.source || 'cli',
                 createdAt: r.startedAt ? r.startedAt * 1000 : Date.now(),
                 updatedAt: r.lastActive ? r.lastActive * 1000 : Date.now(),
-                archived: Boolean(r.archived)
+                archived: Boolean(r.archived),
+                inputTokens: Number(r.inputTokens || 0),
+                outputTokens: Number(r.outputTokens || 0),
+                cacheReadTokens: Number(r.cacheReadTokens || 0),
+                reasoningTokens: Number(r.reasoningTokens || 0),
+                apiCallCount: Number(r.apiCallCount || 0)
             }));
         } catch (error) {
             this.logger.error('SessionService.getSessions error:', error);
@@ -321,6 +331,75 @@ export class SessionService {
             } catch (fallbackErr) {
                 this.logger.error(`Failed to launch fallback clearMessages for ${sessionId}:`, fallbackErr);
                 resolve(false);
+            }
+        });
+    }
+
+    public async getSessionUsage(sessionId?: string): Promise<any> {
+        try {
+            const res = await this.sendRequest('session_usage', { sessionId: sessionId || '' }, 8000);
+            if (res && typeof res === 'object') {
+                return res;
+            }
+        } catch (error) {
+            this.logger.warn('Daemon session_usage failed, falling back to direct CLI:', error);
+        }
+        return new Promise<any>((resolve) => {
+            try {
+                const cp = spawn(getPythonExecutablePath(), [this.getScriptPath(), 'session_usage', this.dbPath, sessionId || ''], {
+                    windowsHide: true
+                });
+                let stdout = '';
+                cp.stdout.on('data', d => { stdout += d.toString('utf8'); });
+                cp.on('close', () => {
+                    try {
+                        resolve(JSON.parse(stdout.trim() || '{}'));
+                    } catch {
+                        resolve({});
+                    }
+                });
+                cp.on('error', () => resolve({}));
+            } catch {
+                resolve({});
+            }
+        });
+    }
+
+    public async syncLiveCatalog(hermesHome: string, forceRefresh: boolean = true): Promise<any> {
+        try {
+            const res = await this.sendRequest('sync_catalog', { hermesHome, forceRefresh }, 25000);
+            if (res && typeof res === 'object' && Array.isArray(res.providers)) {
+                return res;
+            }
+        } catch (error) {
+            this.logger.warn('Daemon sync_catalog failed, falling back to direct CLI:', error);
+        }
+        return new Promise<any>((resolve) => {
+            try {
+                const cp = spawn(getPythonExecutablePath(), [this.getScriptPath(), 'sync_catalog', hermesHome, this.dbPath], {
+                    windowsHide: true
+                });
+                let stdout = '';
+                const timer = setTimeout(() => {
+                    try { cp.kill(); } catch {}
+                    resolve(null);
+                }, 25000);
+                cp.stdout.on('data', d => { stdout += d.toString('utf8'); });
+                cp.on('close', () => {
+                    clearTimeout(timer);
+                    try {
+                        const parsed = JSON.parse(stdout.trim() || 'null');
+                        resolve(parsed);
+                    } catch {
+                        resolve(null);
+                    }
+                });
+                cp.on('error', () => {
+                    clearTimeout(timer);
+                    resolve(null);
+                });
+            } catch {
+                resolve(null);
             }
         });
     }

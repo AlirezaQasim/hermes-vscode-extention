@@ -126,4 +126,91 @@ describe('ConfigService', () => {
             expect(opencode.hasKey).toBe(true);
         }
     });
+
+    it('should mark Top 20 priority providers and expose syncCatalogWithHermes with ACP merge', async () => {
+        const config = await service.getModelConfig();
+        const top20 = config.providers.filter(p => p.isTopPriority === true);
+        expect(top20.length).toBeLessThanOrEqual(20);
+        expect(top20.length).toBeGreaterThan(5);
+
+        const mockSessionSvc = {
+            syncLiveCatalog: async () => ({
+                current: { provider: 'openrouter', model: 'anthropic/claude-3.7-sonnet', baseUrl: '' },
+                providers: [
+                    {
+                        id: 'openrouter',
+                        name: 'OpenRouter Live',
+                        envVar: 'OPENROUTER_API_KEY',
+                        hasKey: true,
+                        keyStatus: 'valid',
+                        keyMasked: 'sk-o••••••••1234',
+                        baseUrl: 'https://openrouter.ai/api/v1',
+                        docUrl: '',
+                        usageCount: 12,
+                        models: [
+                            { id: 'anthropic/claude-3.7-sonnet', name: 'Claude 3.7 Sonnet', tag: 'Reasoning', reasoning: true, reasoningEfforts: ['low', 'medium', 'high'], contextLimit: 200000 }
+                        ]
+                    }
+                ],
+                quota: { provider: 'openrouter', requestsUsed: 2, requestsLimit: 50, requestsRemaining: 48 },
+                todayRequests: 2
+            })
+        };
+
+        const synced = await service.syncCatalogWithHermes(mockSessionSvc, [
+            { modelId: 'acp/live-test-model', name: 'ACP Live Model', provider: 'openrouter', contextWindow: 256000, reasoning: true }
+        ], true);
+
+        expect(synced.quota?.requestsRemaining).toBe(48);
+        const orProv = synced.providers.find(p => p.id === 'openrouter');
+        expect(orProv?.keyStatus).toBe('valid');
+        expect(orProv?.models.some(m => m.id === 'acp/live-test-model')).toBe(true);
+
+        const ctxRes = service.resolveModelContextWithSource('acp/live-test-model', 'openrouter');
+        expect(ctxRes.limit).toBe(256000);
+        expect(ctxRes.source).toBe('Live Provider Catalog');
+    });
+
+    it('should preserve session in query_sessions after clear while deleting permanently on delete', () => {
+        const { execFileSync } = require('child_process');
+        const fs = require('fs');
+        const os = require('os');
+        const path = require('path');
+        const { getPythonExecutablePath } = require('../src/utils/hermesPaths');
+
+        const tmpDb = path.join(os.tmpdir(), `hermes-test-${Date.now()}.db`);
+        const pyScript = path.resolve(process.cwd(), 'src/utils/hermesDb.py');
+        const pyCode = `
+import sqlite3, importlib.util, json
+spec = importlib.util.spec_from_file_location('hdb', r'''${pyScript}''')
+hdb = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(hdb)
+db = r'''${tmpDb}'''
+conn = sqlite3.connect(db)
+conn.execute('CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, user_id TEXT, model TEXT, cwd TEXT, title TEXT, started_at REAL, last_active REAL, end_time REAL, message_count INTEGER, input_tokens INTEGER, output_tokens INTEGER, cache_read_tokens INTEGER, reasoning_tokens INTEGER, api_call_count INTEGER, transcript_revision INTEGER DEFAULT 0, archived INTEGER DEFAULT 0, billing_provider TEXT, parent_session_id TEXT, last_activity_at REAL)')
+conn.execute('CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, role TEXT, content TEXT, timestamp REAL, tool_calls TEXT)')
+conn.execute("INSERT INTO sessions (id, source, model, cwd, title, started_at, last_active, message_count, input_tokens, output_tokens, api_call_count) VALUES ('sess-keep', 'cli', 'gpt-4o', '/tmp/ws', 'Keep Session', 1000.0, 2000.0, 2, 500, 100, 3)")
+conn.execute("INSERT INTO messages (session_id, role, content, timestamp) VALUES ('sess-keep', 'user', 'hi', 1001.0), ('sess-keep', 'assistant', 'hello', 1002.0)")
+conn.commit()
+conn.close()
+clr = hdb.do_clear_session_messages(db, 'sess-keep')
+after_clr = hdb.query_sessions(db, 50)
+usage = hdb.query_session_usage(db, 'sess-keep')
+dlt = hdb.do_delete_session(db, 'sess-keep')
+after_del = hdb.query_sessions(db, 50)
+print(json.dumps({'clr': clr['success'], 'inListAfterClr': any(s['id']=='sess-keep' for s in after_clr), 'msgCountAfterClr': after_clr[0]['messageCount'], 'usageCalls': usage['apiCallCount'], 'dlt': dlt['success'], 'inListAfterDel': any(s['id']=='sess-keep' for s in after_del)}))
+`;
+        try {
+            const out = execFileSync(getPythonExecutablePath(), ['-c', pyCode], { encoding: 'utf8' });
+            const parsed = JSON.parse(out.trim().split(/\r?\n/).pop() || '{}');
+            expect(parsed.clr).toBe(true);
+            expect(parsed.inListAfterClr).toBe(true);
+            expect(parsed.msgCountAfterClr).toBe(0);
+            expect(parsed.usageCalls).toBe(0);
+            expect(parsed.dlt).toBe(true);
+            expect(parsed.inListAfterDel).toBe(false);
+        } finally {
+            try { fs.unlinkSync(tmpDb); } catch {}
+        }
+    });
 });

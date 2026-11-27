@@ -292,7 +292,7 @@ export class HermesConfig {
     private parseYaml(content: string): any {
         const result: Record<string, any> = {};
         const lines = content.split(/\r?\n/);
-        const stack: { indent: number; obj: Record<string, any> }[] = [{ indent: -1, obj: result }];
+        const stack: Array<{ indent: number; obj: Record<string, any> }> = [{ indent: -1, obj: result }];
 
         for (const rawLine of lines) {
             const line = rawLine.replace(/#.*$/, ''); // strip comments

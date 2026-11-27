@@ -68,9 +68,10 @@ export interface ModelItem {
     id: string;
     name: string;
     tag: string;
-    reasoning?: boolean;
-    reasoningEfforts?: string[];
-    contextLimit?: number;
+    reasoning?: boolean | undefined;
+    reasoningEfforts?: string[] | undefined;
+    reasoningMandatory?: boolean | undefined;
+    contextLimit?: number | undefined;
 }
 
 export interface ModelProviderInfo {
@@ -78,9 +79,16 @@ export interface ModelProviderInfo {
     name: string;
     envVar: string;
     hasKey: boolean;
+    keyStatus?: 'valid' | 'invalid' | 'missing' | 'oauth' | 'local' | 'unverified' | 'offline' | undefined;
+    keyDetail?: string | undefined;
     keyMasked: string;
     baseUrl: string;
     docUrl: string;
+    usageCount?: number | undefined;
+    apiCallCount?: number | undefined;
+    rank?: number | undefined;
+    isTopPriority?: boolean | undefined;
+    quota?: Record<string, any> | undefined;
     models: ModelItem[];
 }
 
@@ -89,23 +97,64 @@ export interface ModelConfigData {
         provider: string;
         model: string;
         baseUrl: string;
-        reasoningEffort?: string;
+        reasoningEffort?: string | undefined;
     };
     providers: ModelProviderInfo[];
+    quota?: Record<string, any> | undefined;
+    todayRequests?: number | undefined;
+    syncTimestamp?: number | undefined;
+    topLimit?: number | undefined;
+    totalProviders?: number | undefined;
+}
+
+export interface QuotaWindowItem {
+    label: string;
+    usedPercent: number;
+    remainingPercent: number;
+    resetsAt?: string | null;
+    detail?: string;
 }
 
 export interface TokenUsageMetrics {
     prompt: number;
     completion: number;
     total: number;
+    contextUsed?: number;
+    contextRemaining?: number;
     maxContext: number;
     percentUsed: number;
+    ceilingSource?: string;
     cachedTokens?: number;
+    reasoningTokens?: number;
+    apiCallCount?: number;
+    todayRequests?: number;
+    quotaProvider?: string;
+    requestsUsed?: number | null;
+    requestsLimit?: number | null;
+    requestsRemaining?: number | null;
+    creditsTotal?: number | null;
+    creditsUsage?: number | null;
+    creditsRemaining?: number | null;
+    usageDaily?: number | null;
+    usageWeekly?: number | null;
+    isFreeTier?: boolean | null;
+    quotaWindows?: QuotaWindowItem[];
+    quotaPlan?: string;
+    modelName?: string;
+    providerName?: string;
+}
+
+export interface CatalogSyncState {
+    syncing: boolean;
+    stage: string;
+    error?: string | undefined;
+    lastSyncedAt?: number | undefined;
 }
 
 export interface ExtensionConfig {
     autoApprove: boolean;
     cwd: string;
+    version?: string;
 }
 
 export interface HostUpdateMessage {
@@ -116,6 +165,7 @@ export interface HostUpdateMessage {
     sessionId?: string | null;
     sessionTitle?: string;
     tokenUsage?: TokenUsageMetrics | null;
+    catalogSyncState?: CatalogSyncState;
     modelConfig?: ModelConfigData | null;
     sessions?: HermesSession[];
     skills?: SkillInfo[];
@@ -126,8 +176,10 @@ export type WebviewToHostMessage =
     | { type: 'sendPrompt'; text: string; attachments?: AttachmentItem[] | undefined }
     | { type: 'cancelTurn' }
     | { type: 'newSession' }
-    | { type: 'clearChat'; sessionId?: string }
+    | { type: 'clearChat'; sessionId?: string | undefined }
     | { type: 'compressContext' }
+    | { type: 'syncCatalog'; forceRefresh?: boolean }
+    | { type: 'refreshUsage' }
     | { type: 'openSkillFile'; skillPath: string }
     | { type: 'loadSession'; sessionId: string }
     | { type: 'archiveSession'; sessionId: string; archive: boolean }

@@ -137,6 +137,28 @@ export const en: Record<string, string> = {
     'banner.contextOverflowDesc': 'Compacting is recommended to prevent latency and quality degradation.',
     'banner.compressAction': 'Smart Compaction',
 
+    // Syncing Popup & Telemetry HUD
+    'sync.updatingTitle': 'Updating Hermes Catalog & Keys',
+    'sync.updatingSub': 'Fetching live operators, models, reasoning capabilities, and validating API keys...',
+    'sync.refreshBtn': 'Live Sync (ACP + Servers)',
+    'hud.title': 'Context Window, Tokens & Requests',
+    'hud.contextWindow': 'Context Window',
+    'hud.used': 'Used',
+    'hud.remaining': 'Remaining',
+    'hud.capacity': 'Capacity',
+    'hud.tokensBreakdown': 'Tokens Breakdown',
+    'hud.requestsQuota': 'Requests & Quota',
+    'hud.sessionCalls': 'Session Requests',
+    'hud.todayCalls': 'Today Total',
+    'hud.dailyQuota': 'Daily Requests (Used / Remaining / Limit)',
+    'hud.credits': 'Credits Remaining',
+    'hud.refreshTelemetry': 'Refresh Usage',
+    'models.topOperators': 'Top 20 Priority & Most-Used Operators',
+    'models.moreOperators': 'All Other Operators (Scroll)',
+    'models.searchProviders': 'Search operators/providers...',
+    'cmd.clear.desc': 'Clear chat history while keeping session in list',
+    'cmd.compress.desc': 'Compact context window to free token space',
+
     // Footer Bar
     'footer.agent': 'HERMES / v1.0.4',
     'footer.tagline': 'Local. Autonomous. Under Your Control.'

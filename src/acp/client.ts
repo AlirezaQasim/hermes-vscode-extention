@@ -107,6 +107,10 @@ export class HermesACPClient extends EventEmitter {
     private isConnected = false;
     private currentSessionId: string | null = null;
     private isReplayingHistory = false;
+    private suppressTurnEvents = false;
+    private availableAcpModels: any[] = [];
+    private currentAcpModelId = '';
+    private availableAcpModes: any[] = [];
     private permissionRequestHandler: ((request: ACPPermissionRequest) => Promise<string>) | null = null;
     private autoApproveEnabled = false;
 
@@ -481,18 +485,20 @@ export class HermesACPClient extends EventEmitter {
                 // Internal listener for history replay termination
                 this.emit('_internalSessionUpdate', params);
 
-                // If currently replaying past session history, do NOT emit sessionUpdate or live streaming chunks or tools.
-                // Past messages are already loaded reliably from SQLite DB in exact chronological order.
-                if (this.isReplayingHistory) {
-                    return;
-                }
-
-                this.emit('sessionUpdate', params);
-
                 // Normalization of ACP standard sessionUpdate and legacy formats
                 const updatePayload = params?.update || params;
                 const updateKind = updatePayload?.sessionUpdate || updatePayload?.session_update || updatePayload?.kind || updatePayload?.type;
                 const sessionId = params?.sessionId || params?.session_id || this.currentSessionId || '';
+
+                // Always emit usage_update even during history replay so Session Load hydrates real context usage!
+                if (this.isReplayingHistory && updateKind !== 'usage_update' && updateKind !== 'usage') {
+                    return;
+                }
+                if (this.suppressTurnEvents && updateKind !== 'usage_update' && updateKind !== 'usage') {
+                    return;
+                }
+
+                this.emit('sessionUpdate', params);
 
                 if (updateKind === 'agent_thought_chunk' || updateKind === 'thought_chunk' || updateKind === 'thought') {
                     const text = this.extractTextContent(updatePayload.content);
@@ -532,6 +538,7 @@ export class HermesACPClient extends EventEmitter {
                         maxContextTokens: updatePayload.size || updatePayload.modelContextWindow,
                         cachedTokens: updatePayload.cachedTokens || updatePayload.cachedInputTokens
                     };
+                    (usage as any).reasoningTokens = updatePayload.reasoningTokens || 0;
                     this.emit('tokenUsage', usage);
                 }
                 break;
@@ -639,6 +646,23 @@ export class HermesACPClient extends EventEmitter {
         });
     }
 
+    private captureSessionCapabilities(response: any): void {
+        if (!response || typeof response !== 'object') return;
+        const modelsBlock = response.models;
+        if (modelsBlock && Array.isArray(modelsBlock.availableModels)) {
+            this.availableAcpModels = modelsBlock.availableModels;
+            this.currentAcpModelId = modelsBlock.currentModelId || this.currentAcpModelId || '';
+            this.emit('modelsUpdated', {
+                availableModels: this.availableAcpModels,
+                currentModelId: this.currentAcpModelId
+            });
+        }
+        const modesBlock = response.modes;
+        if (modesBlock && Array.isArray(modesBlock.availableModes)) {
+            this.availableAcpModes = modesBlock.availableModes;
+        }
+    }
+
     async createSession(cwd: string): Promise<ACPSession> {
         const safeCwd = getHermesSafeCwd(cwd);
         const response = await this.sendRequest('session/new', {
@@ -646,6 +670,7 @@ export class HermesACPClient extends EventEmitter {
             mcpServers: []
         }, 30000);
         this.currentSessionId = response.sessionId;
+        this.captureSessionCapabilities(response);
 
         if (this.autoApproveEnabled && this.currentSessionId) {
             this.setSessionMode(this.currentSessionId, 'accept_edits').catch(() => {});
@@ -665,6 +690,7 @@ export class HermesACPClient extends EventEmitter {
             }, 30000);
             if (response) {
                 this.currentSessionId = response.sessionId;
+                this.captureSessionCapabilities(response);
             }
             await this.waitForHistoryReplay();
 
@@ -749,6 +775,16 @@ export class HermesACPClient extends EventEmitter {
         return await this.sendPrompt(sessionId, '/compress');
     }
 
+    async resetSession(sessionId: string): Promise<any> {
+        this.logger.info(`Resetting live ACP session RAM state (/reset) for session: ${sessionId}`);
+        this.suppressTurnEvents = true;
+        try {
+            return await this.sendPrompt(sessionId, '/reset');
+        } finally {
+            this.suppressTurnEvents = false;
+        }
+    }
+
     async cancelTurn(sessionId: string): Promise<void> {
         await this.sendRequest('session/cancel', {
             sessionId
@@ -760,12 +796,25 @@ export class HermesACPClient extends EventEmitter {
         return response.sessions || [];
     }
 
-    async getAvailableModels(_sessionId: string): Promise<any[]> {
-        return [];
+    async getAvailableModels(_sessionId?: string): Promise<any[]> {
+        return [...this.availableAcpModels];
     }
 
-    async getAvailableProviders(_sessionId: string): Promise<any[]> {
-        return [];
+    getCurrentAcpModelId(): string {
+        return this.currentAcpModelId;
+    }
+
+    async getAvailableProviders(_sessionId?: string): Promise<any[]> {
+        const seen = new Set<string>();
+        const providers: Array<{ id: string; name: string }> = [];
+        for (const m of this.availableAcpModels) {
+            const pid = m?.provider || (typeof m?.modelId === 'string' && m.modelId.includes('/') ? m.modelId.split('/')[0] : '');
+            if (pid && !seen.has(pid)) {
+                seen.add(pid);
+                providers.push({ id: pid, name: pid });
+            }
+        }
+        return providers;
     }
 
     async setModel(sessionId: string, modelId: string): Promise<void> {
@@ -858,6 +907,7 @@ export class HermesACPClient extends EventEmitter {
     on(event: 'permissionRequest', listener: (request: ACPPermissionRequest) => void): this;
     on(event: 'toolCall', listener: (toolCall: ACPToolCall) => void): this;
     on(event: 'tokenUsage', listener: (usage: ACPTokenUsage) => void): this;
+    on(event: 'modelsUpdated', listener: (payload: { availableModels: any[]; currentModelId: string }) => void): this;
     on(event: 'error', listener: (error: Error) => void): this;
     on(event: string, listener: (...args: any[]) => void): this {
         return super.on(event, listener);
@@ -880,6 +930,7 @@ export class HermesACPClient extends EventEmitter {
     emit(event: 'permissionRequest', request: ACPPermissionRequest): boolean;
     emit(event: 'toolCall', toolCall: ACPToolCall): boolean;
     emit(event: 'tokenUsage', usage: ACPTokenUsage): boolean;
+    emit(event: 'modelsUpdated', payload: { availableModels: any[]; currentModelId: string }): boolean;
     emit(event: 'error', error: Error): boolean;
     emit(event: string, ...args: any[]): boolean {
         return super.emit(event, ...args);

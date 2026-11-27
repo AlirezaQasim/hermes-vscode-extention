@@ -79,19 +79,31 @@ def query_sessions(db_path_str=None, limit=100):
         return []
     try:
         cursor = conn.cursor()
-        rows = cursor.execute("""
+        cols = {c[1] for c in cursor.execute("PRAGMA table_info(sessions)").fetchall()}
+        has_rev = "transcript_revision" in cols
+        has_tokens = all(k in cols for k in ("input_tokens", "output_tokens", "cache_read_tokens", "reasoning_tokens", "api_call_count"))
+
+        where_clause = "(message_count > 0 OR COALESCE(transcript_revision, 0) > 0)" if has_rev else "message_count > 0"
+        token_cols = (
+            ", COALESCE(input_tokens, 0) as input_tokens, COALESCE(output_tokens, 0) as output_tokens, "
+            "COALESCE(cache_read_tokens, 0) as cache_read_tokens, COALESCE(reasoning_tokens, 0) as reasoning_tokens, "
+            "COALESCE(api_call_count, 0) as api_call_count"
+            if has_tokens else ""
+        )
+
+        rows = cursor.execute(f"""
             SELECT id, title, model, cwd, message_count, source,
                    started_at, COALESCE(last_activity_at, started_at) as last_active,
-                   COALESCE(archived, 0) as archived
+                   COALESCE(archived, 0) as archived{token_cols}
             FROM sessions
-            WHERE message_count > 0
+            WHERE {where_clause}
             ORDER BY last_active DESC
             LIMIT ?
         """, (limit,)).fetchall()
         
         result = []
         for r in rows:
-            result.append({
+            item = {
                 "id": r["id"],
                 "title": r["title"] or r["id"],
                 "model": r["model"] or "",
@@ -101,7 +113,16 @@ def query_sessions(db_path_str=None, limit=100):
                 "startedAt": r["started_at"] or 0,
                 "lastActive": r["last_active"] or 0,
                 "archived": bool(r["archived"])
-            })
+            }
+            if has_tokens:
+                item.update({
+                    "inputTokens": r["input_tokens"] or 0,
+                    "outputTokens": r["output_tokens"] or 0,
+                    "cacheReadTokens": r["cache_read_tokens"] or 0,
+                    "reasoningTokens": r["reasoning_tokens"] or 0,
+                    "apiCallCount": r["api_call_count"] or 0
+                })
+            result.append(item)
         return result
     except Exception as e:
         sys.stderr.write(f"Error listing sessions: {e}\n")
@@ -210,10 +231,17 @@ def do_delete_session(db_path_str, session_id):
         except Exception:
             pass
 
+        # Clear self-referencing parent_session_id FKs on child rows before deleting target session
+        try:
+            cursor.execute("UPDATE sessions SET parent_session_id = NULL WHERE parent_session_id = ?", (session_id,))
+        except Exception:
+            pass
+
         # 5. Delete from sessions table
         cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         conn.commit()
-        return {"success": True, "sessionId": session_id, "deleted": True}
+        still_exists = cursor.execute("SELECT COUNT(*) FROM sessions WHERE id = ?", (session_id,)).fetchone()[0]
+        return {"success": still_exists == 0, "sessionId": session_id, "deleted": still_exists == 0}
     except Exception as e:
         sys.stderr.write(f"Error deleting session {session_id}: {e}\n")
         return {"success": False, "error": str(e)}
@@ -229,11 +257,12 @@ def delete_session(db_path_str, session_id):
 def do_clear_session_messages(db_path_str, session_id):
     """
     Clears all messages belonging to a session while keeping the session record itself.
-    Resets message_count to 0, token counters to 0, and bumps transcript_revision.
+    Resets message_count to 0, token counters to 0, and bumps transcript_revision so the
+    session remains visible in the Sessions tab with 0 messages.
     """
     if not session_id:
         return {"success": False, "error": "No sessionId provided"}
-    db_path = Path(db_path_str) if db_path_str else get_state_db_path()
+    db_path = Path(db_path_str) if db_path_str else (get_hermes_home() / "state.db")
     if not db_path or not db_path.exists():
         return {"success": False, "error": "Database file not found"}
 
@@ -243,10 +272,11 @@ def do_clear_session_messages(db_path_str, session_id):
 
     try:
         cursor = conn.cursor()
-        
+        cursor.execute("PRAGMA foreign_keys = OFF")
+
         # 1. Delete all messages for this session
         cursor.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
-        
+
         # 2. Clean model usage or compression locks specific to this session
         try:
             cursor.execute("DELETE FROM session_model_usage WHERE session_id = ?", (session_id,))
@@ -272,8 +302,13 @@ def do_clear_session_messages(db_path_str, session_id):
             updates.append("cache_write_tokens = 0")
         if "reasoning_tokens" in cols:
             updates.append("reasoning_tokens = 0")
+        if "api_call_count" in cols:
+            updates.append("api_call_count = 0")
         if "transcript_revision" in cols:
-            updates.append("transcript_revision = transcript_revision + 1")
+            updates.append("transcript_revision = COALESCE(transcript_revision, 0) + 1")
+        if "title" in cols:
+            fallback_title = f"گفتگوی پاکسازی‌شده ({session_id[:8]})"
+            updates.append(f"title = COALESCE(NULLIF(TRIM(title), ''), '{fallback_title}')")
 
         if updates:
             sql = f"UPDATE sessions SET {', '.join(updates)} WHERE id = ?"
@@ -284,6 +319,63 @@ def do_clear_session_messages(db_path_str, session_id):
     except Exception as e:
         sys.stderr.write(f"Error clearing messages for session {session_id}: {e}\n")
         return {"success": False, "error": str(e)}
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+def query_session_usage(db_path_str=None, session_id=None):
+    """Return persisted session token metrics, API call count, and today's total requests."""
+    conn = get_db(db_path_str)
+    if not conn:
+        return {}
+    try:
+        cursor = conn.cursor()
+        out = {
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "reasoningTokens": 0,
+            "apiCallCount": 0,
+            "todayRequests": 0
+        }
+        cols = {c[1] for c in cursor.execute("PRAGMA table_info(sessions)").fetchall()}
+        if session_id and "input_tokens" in cols:
+            row = cursor.execute("""
+                SELECT COALESCE(input_tokens, 0) as input_tokens,
+                       COALESCE(output_tokens, 0) as output_tokens,
+                       COALESCE(cache_read_tokens, 0) as cache_read_tokens,
+                       COALESCE(reasoning_tokens, 0) as reasoning_tokens,
+                       COALESCE(api_call_count, 0) as api_call_count,
+                       model, billing_provider
+                FROM sessions WHERE id = ?
+            """, (session_id,)).fetchone()
+            if row:
+                out.update({
+                    "inputTokens": row["input_tokens"] or 0,
+                    "outputTokens": row["output_tokens"] or 0,
+                    "cacheReadTokens": row["cache_read_tokens"] or 0,
+                    "reasoningTokens": row["reasoning_tokens"] or 0,
+                    "apiCallCount": row["api_call_count"] or 0,
+                    "model": row["model"] or "",
+                    "provider": row["billing_provider"] or ""
+                })
+        if "api_call_count" in cols and "started_at" in cols:
+            import datetime
+            now = datetime.datetime.now(datetime.timezone.utc)
+            midnight = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+            agg = cursor.execute("""
+                SELECT COALESCE(SUM(api_call_count), 0)
+                FROM sessions
+                WHERE COALESCE(last_activity_at, started_at) >= ?
+            """, (midnight,)).fetchone()
+            if agg and agg[0] is not None:
+                out["todayRequests"] = int(agg[0])
+        return out
+    except Exception as e:
+        sys.stderr.write(f"Error querying session usage: {e}\n")
+        return {}
     finally:
         try:
             conn.close()
@@ -464,7 +556,7 @@ def extract_description(skill_file):
 # =============================================================================
 
 def bootstrap_hermes_cli(h_home):
-    """Attempt to import hermes CLI and bootstrap its environment."""
+    """Attempt to import hermes CLI and bootstrap its environment without spawning a relaunch child."""
     os.environ["HERMES_HOME"] = str(h_home)
     candidates = [
         h_home / "hermes-agent",
@@ -474,16 +566,21 @@ def bootstrap_hermes_cli(h_home):
     env_agent = os.environ.get("HERMES_AGENT_PATH")
     if env_agent:
         candidates.insert(0, Path(env_agent))
-        
+
     for p in candidates:
-        if p.exists() and ((p / "hermes_bootstrap.py").exists() or (p / "hermes_cli").exists()):
+        if p.exists() and ((p / "pm" / "environments.py").exists() or (p / "hermes_cli").exists()):
             if str(p) not in sys.path:
                 sys.path.insert(0, str(p))
             try:
-                import hermes_bootstrap
+                # Activate Hermes dependencies in-process (never import hermes_bootstrap at runtime
+                # because its top-level prepare_launch() relaunches via subprocess and exits the daemon).
+                if (p / "pm" / "environments.py").exists():
+                    from pm.environments import activate_dependencies
+                    activate_dependencies(p)
+                import hermes_cli
                 return True
-            except Exception:
-                pass
+            except BaseException as e:
+                sys.stderr.write(f"Hermes bootstrap notice for {p}: {e}\n")
     return False
 
 def mask_key(k):
@@ -560,7 +657,7 @@ FALLBACK_PROVIDERS = [
     {"id": "groq", "name": "Groq (Ultra-Fast Inference)", "envVar": "GROQ_API_KEY", "baseUrl": "https://api.groq.com/openai/v1"}
 ]
 
-def query_model_config(hermes_home_str=None):
+def query_model_config(hermes_home_str=None, fast_static=False):
     h_home = get_hermes_home(hermes_home_str)
     cfg_file = h_home / "config.yaml"
     env_file = h_home / ".env"
@@ -673,8 +770,8 @@ def query_model_config(hermes_home_str=None):
 
             if pid == "openrouter":
                 try:
-                    or_ids = cached_models or (models_mod.provider_model_ids("openrouter") if models_mod else [])
-                    or_pricing = pricing_mod.get_pricing_for_provider("openrouter") if pricing_mod else {}
+                    or_ids = cached_models or ([] if fast_static else (models_mod.provider_model_ids("openrouter") if models_mod else []))
+                    or_pricing = {} if fast_static else (pricing_mod.get_pricing_for_provider("openrouter") if pricing_mod else {})
                     for mid in or_ids:
                         pr = or_pricing.get(mid)
                         is_free = False
@@ -708,7 +805,7 @@ def query_model_config(hermes_home_str=None):
 
             elif pid == "gemini":
                 try:
-                    g_ids = list(cached_models) if cached_models else (list(models_mod.provider_model_ids("gemini")) if models_mod else [])
+                    g_ids = list(cached_models) if cached_models else ([] if fast_static else (list(models_mod.provider_model_ids("gemini")) if models_mod else []))
                     for extra in ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemma-4-31b-it", "gemma-4-26b-a4b-it"]:
                         if extra not in g_ids:
                             g_ids.append(extra)
@@ -735,7 +832,7 @@ def query_model_config(hermes_home_str=None):
                 except Exception as e:
                     sys.stderr.write(f"Error fetching gemini models: {e}\n")
 
-            elif pid in {"copilot", "copilot-acp"} and (cached_models or (models_mod and pid == "copilot-acp")):
+            elif pid in {"copilot", "copilot-acp"} and (cached_models or (not fast_static and models_mod and pid == "copilot-acp")):
                 try:
                     c_ids = cached_models or (list(models_mod.provider_model_ids("copilot-acp")) if models_mod else [])
                     for mid in c_ids:
@@ -757,7 +854,7 @@ def query_model_config(hermes_home_str=None):
                             static_ms = [c[0] if isinstance(c, tuple) else c for c in curated]
                     except Exception:
                         pass
-                if not static_ms and pid in {"anthropic", "openai-api", "deepseek", "nvidia", "alibaba"} and models_mod:
+                if not static_ms and not fast_static and pid in {"anthropic", "openai-api", "deepseek", "nvidia", "alibaba"} and models_mod:
                     try:
                         static_ms = models_mod.provider_model_ids(pid)
                     except Exception:
@@ -825,6 +922,553 @@ def query_model_config(hermes_home_str=None):
         "providers": providers_out
     }
     return out
+
+def _http_json(url, headers=None, timeout=4.0):
+    """Fetch JSON over HTTP/HTTPS with strict timeout and status reporting."""
+    import urllib.request
+    import urllib.error
+    req = urllib.request.Request(url, headers=headers or {"User-Agent": "Hermes-VSCode/1.0.4"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", errors="ignore")
+            return resp.status, json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as he:
+        try:
+            body = he.read().decode("utf-8", errors="ignore")
+            parsed = json.loads(body) if body else {}
+        except Exception:
+            parsed = {}
+        return he.code, parsed
+    except Exception as e:
+        return 0, {"_error": str(e)}
+
+
+def _read_hermes_env_and_cfg(h_home):
+    cfg_file = h_home / "config.yaml"
+    env_file = h_home / ".env"
+    cur_provider, cur_model, cur_base_url, reasoning_effort = "openrouter", "", "", ""
+    custom_providers = []
+    if cfg_file.exists():
+        try:
+            content = cfg_file.read_text(encoding="utf-8", errors="ignore")
+            m_def = re.search(r"(?m)^\s*default:\s*['\"]?([^\r\n'\"]+)['\"]?", content)
+            if m_def:
+                cur_model = m_def.group(1).strip()
+            m_prov = re.search(r"(?m)^\s*provider:\s*['\"]?([^\r\n'\"]+)['\"]?", content)
+            if m_prov:
+                cur_provider = m_prov.group(1).strip()
+            m_base = re.search(r"(?m)^\s*base_url:\s*['\"]?([^\r\n'\"]+)['\"]?", content)
+            if m_base:
+                cur_base_url = m_base.group(1).strip()
+            m_re = re.search(r"(?m)^\s*reasoning_effort:\s*['\"]?([^\r\n'\"]+)['\"]?", content)
+            if m_re:
+                reasoning_effort = m_re.group(1).strip()
+        except Exception:
+            pass
+    env_keys = {}
+    if env_file.exists():
+        try:
+            for line in env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    k, v = k.strip(), v.strip().strip("'\"")
+                    if v:
+                        env_keys[k] = v
+        except Exception:
+            pass
+    return cur_provider, cur_model, cur_base_url, reasoning_effort, env_keys
+
+
+def _probe_openrouter_live(api_key="", timeout=4.5):
+    res = {"keyStatus": "missing", "keyDetail": "No API key configured", "models": [], "quota": {}}
+    hdrs = {"User-Agent": "Hermes-VSCode/1.0.4"}
+    if api_key:
+        k_hdrs = {**hdrs, "Authorization": f"Bearer {api_key}"}
+        code, kdata = _http_json("https://openrouter.ai/api/v1/key", k_hdrs, timeout=timeout)
+        if code == 200 and isinstance(kdata, dict):
+            d = kdata.get("data") or kdata
+            res["keyStatus"] = "valid"
+            free_req = d.get("free_model_daily_requests") or {}
+            res["keyDetail"] = "Active key" + (" (Free tier)" if d.get("is_free_tier") else " (Paid tier)")
+            res["quota"] = {
+                "provider": "openrouter",
+                "requestsUsed": free_req.get("used"),
+                "requestsLimit": free_req.get("limit"),
+                "requestsRemaining": free_req.get("remaining"),
+                "limit": d.get("limit"),
+                "limitRemaining": d.get("limit_remaining"),
+                "usage": d.get("usage"),
+                "usageDaily": d.get("usage_daily"),
+                "usageWeekly": d.get("usage_weekly"),
+                "isFreeTier": bool(d.get("is_free_tier")),
+                "label": d.get("label") or ""
+            }
+        elif code in (401, 403):
+            res["keyStatus"] = "invalid"
+            res["keyDetail"] = f"HTTP {code} invalid OpenRouter key"
+        else:
+            res["keyStatus"] = "unverified"
+            res["keyDetail"] = f"Probe status {code}"
+
+        ccode, cdata = _http_json("https://openrouter.ai/api/v1/credits", k_hdrs, timeout=timeout)
+        if ccode == 200 and isinstance(cdata, dict):
+            cd = cdata.get("data") or cdata
+            tot = cd.get("total_credits")
+            used_c = cd.get("total_usage")
+            res["quota"]["creditsTotal"] = tot
+            res["quota"]["creditsUsage"] = used_c
+            if isinstance(tot, (int, float)) and isinstance(used_c, (int, float)):
+                res["quota"]["creditsRemaining"] = round(tot - used_c, 6)
+
+    mcode, mdata = _http_json("https://openrouter.ai/api/v1/models", hdrs, timeout=timeout)
+    if mcode == 200 and isinstance(mdata, dict) and isinstance(mdata.get("data"), list):
+        models_out = []
+        for item in mdata["data"]:
+            mid = item.get("id")
+            if not mid:
+                continue
+            sp = item.get("supported_parameters") or []
+            arch = item.get("architecture") or {}
+            pr = item.get("pricing") or {}
+            is_free = False
+            try:
+                is_free = (float(pr.get("prompt", 1)) == 0 and float(pr.get("completion", 1)) == 0) or ":free" in mid.lower()
+            except Exception:
+                is_free = ":free" in mid.lower()
+            supports_r = ("reasoning" in sp or "include_reasoning" in sp)
+            ctx_len = item.get("context_length") or (item.get("top_provider") or {}).get("context_length")
+            tag = "Free" if is_free else ("Reasoning" if supports_r else "Catalog")
+            m_obj = {
+                "id": mid,
+                "name": item.get("name") or clean_model_name(mid),
+                "tag": tag,
+                "reasoning": supports_r
+            }
+            if isinstance(ctx_len, int) and ctx_len > 0:
+                m_obj["contextLimit"] = ctx_len
+            if supports_r:
+                m_obj["reasoningEfforts"] = ["low", "medium", "high"]
+            models_out.append(m_obj)
+        res["models"] = models_out
+    return res
+
+
+def _probe_gemini_live(api_key, timeout=4.0):
+    if not api_key:
+        return {"keyStatus": "missing", "keyDetail": "No GOOGLE_API_KEY configured", "models": []}
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    code, data = _http_json(url, timeout=timeout)
+    if code == 200 and isinstance(data, dict):
+        models_out = []
+        for item in data.get("models") or []:
+            raw_name = item.get("name") or ""
+            mid = raw_name.replace("models/", "")
+            methods = item.get("supportedGenerationMethods") or []
+            if not mid or ("generateContent" not in methods and "gemini" not in mid.lower() and "gemma" not in mid.lower()):
+                continue
+            thinking = bool(item.get("thinking")) or ("2.5" in mid or "3" in mid)
+            ctx_len = item.get("inputTokenLimit")
+            m_obj = {
+                "id": mid,
+                "name": item.get("displayName") or mid,
+                "tag": "Thinking" if thinking else "Official",
+                "reasoning": thinking
+            }
+            if isinstance(ctx_len, int) and ctx_len > 0:
+                m_obj["contextLimit"] = ctx_len
+            if thinking:
+                m_obj["reasoningEfforts"] = ["minimal", "low", "medium", "high"] if "3" in mid else ["low", "medium", "high"]
+            models_out.append(m_obj)
+        return {"keyStatus": "valid", "keyDetail": f"Verified ({len(models_out)} live models)", "models": models_out}
+    elif code in (400, 401, 403):
+        return {"keyStatus": "invalid", "keyDetail": f"HTTP {code} invalid Gemini key", "models": []}
+    return {"keyStatus": "unverified", "keyDetail": f"HTTP {code}", "models": []}
+
+
+def _probe_anthropic_live(api_key, timeout=4.0):
+    if not api_key:
+        return {"keyStatus": "missing", "keyDetail": "No ANTHROPIC_API_KEY", "models": []}
+    hdrs = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "User-Agent": "Hermes-VSCode/1.0.4"}
+    code, data = _http_json("https://api.anthropic.com/v1/models", hdrs, timeout=timeout)
+    if code == 200 and isinstance(data, dict):
+        models_out = []
+        for item in data.get("data") or []:
+            mid = item.get("id")
+            if mid:
+                r_sup = any(k in mid for k in ("sonnet-4", "opus-4", "3-7", "4-5", "4-6", "4-7"))
+                models_out.append({
+                    "id": mid,
+                    "name": item.get("display_name") or clean_model_name(mid),
+                    "tag": "Flagship" if ("opus" in mid or "sonnet" in mid) else "Official",
+                    "reasoning": r_sup,
+                    "contextLimit": 200000
+                })
+        return {"keyStatus": "valid", "keyDetail": f"Verified ({len(models_out)} live models)", "models": models_out}
+    elif code in (401, 403):
+        return {"keyStatus": "invalid", "keyDetail": f"HTTP {code} invalid Anthropic key", "models": []}
+    return {"keyStatus": "unverified", "keyDetail": f"HTTP {code}", "models": []}
+
+
+def _probe_openai_compat_live(pid, base_url, api_key, timeout=3.5):
+    if not api_key and pid not in ("ollama", "lmstudio"):
+        return {"keyStatus": "missing", "keyDetail": "No API key", "models": []}
+    b = (base_url or "").rstrip("/")
+    if not b:
+        return {"keyStatus": "unverified", "keyDetail": "Key present (no probe endpoint)", "models": []}
+    url = f"{b}/models"
+    hdrs = {"User-Agent": "Hermes-VSCode/1.0.4"}
+    if api_key:
+        hdrs["Authorization"] = f"Bearer {api_key}"
+    code, data = _http_json(url, hdrs, timeout=timeout)
+    if code == 200 and isinstance(data, dict):
+        raw_list = data.get("data") if isinstance(data.get("data"), list) else (data.get("models") if isinstance(data.get("models"), list) else [])
+        models_out = []
+        for item in raw_list:
+            mid = item.get("id") or item.get("name") if isinstance(item, dict) else str(item)
+            if mid:
+                models_out.append({"id": mid, "name": clean_model_name(mid), "tag": "Live"})
+        return {"keyStatus": "local" if pid in ("ollama", "lmstudio") else "valid", "keyDetail": f"Reachable ({len(models_out)} models)", "models": models_out}
+    elif code in (401, 403):
+        return {"keyStatus": "invalid", "keyDetail": f"HTTP {code} invalid key", "models": []}
+    return {"keyStatus": ("offline" if pid in ("ollama", "lmstudio") and code == 0 else "unverified"), "keyDetail": f"Status {code}" if code else "Offline/Unreachable", "models": []}
+
+
+def _probe_ollama_live(base_url="http://localhost:11434", cur_model="", timeout=1.2):
+    import urllib.request
+    b = (base_url or "http://localhost:11434").rstrip("/")
+    if b.endswith("/v1"):
+        b = b[:-3]
+    code, data = _http_json(f"{b}/api/tags", timeout=timeout)
+    if code == 200 and isinstance(data, dict):
+        models_out = []
+        for m in data.get("models") or []:
+            mid = m.get("name") or m.get("model")
+            if mid:
+                ctx_lim = None
+                if cur_model and mid == cur_model:
+                    try:
+                        req = urllib.request.Request(
+                            f"{b}/api/show",
+                            data=json.dumps({"name": mid}).encode("utf-8"),
+                            headers={"Content-Type": "application/json"},
+                            method="POST"
+                        )
+                        with urllib.request.urlopen(req, timeout=1.0) as r:
+                            sdata = json.loads(r.read().decode("utf-8", errors="ignore"))
+                            mi = sdata.get("model_info") or {}
+                            for k, v in mi.items():
+                                if k.endswith(".context_length") and isinstance(v, int) and v > 0:
+                                    ctx_lim = v
+                                    break
+                    except Exception:
+                        pass
+                obj = {"id": mid, "name": mid, "tag": "Local"}
+                if ctx_lim:
+                    obj["contextLimit"] = ctx_lim
+                models_out.append(obj)
+        return {"keyStatus": "local", "keyDetail": f"Ollama active ({len(models_out)} local models)", "models": models_out}
+    return {"keyStatus": "unverified", "keyDetail": "Ollama offline", "models": []}
+
+
+def sync_live_catalog(hermes_home_str=None, db_path_str=None, force_refresh=True):
+    """Live sync of providers, models, reasoning capabilities, API key validity, and quotas."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import time
+
+    h_home = get_hermes_home(hermes_home_str)
+    cur_provider, cur_model, cur_base_url, reasoning_effort, env_keys = _read_hermes_env_and_cfg(h_home)
+    base_data = query_model_config(hermes_home_str, fast_static=True)
+    providers = base_data.get("providers") or []
+
+    auth_providers = set()
+    auth_file = h_home / "auth.json"
+    if auth_file.exists():
+        try:
+            auth_raw = json.loads(auth_file.read_text(encoding="utf-8", errors="ignore"))
+            if isinstance(auth_raw, dict):
+                auth_providers.update((auth_raw.get("providers") or {}).keys())
+                for k, v in (auth_raw.get("credential_pool") or {}).items():
+                    if v:
+                        auth_providers.add(k)
+        except Exception:
+            pass
+
+    # Query DB provider usage frequencies for smart Top-20 ranking
+    usage_map = {}
+    conn = get_db(db_path_str)
+    if conn:
+        try:
+            cur = conn.cursor()
+            cols = {c[1] for c in cur.execute("PRAGMA table_info(sessions)").fetchall()}
+            if "billing_provider" in cols:
+                rows = cur.execute(
+                    "SELECT LOWER(COALESCE(billing_provider, '')) as p, COUNT(*) as cnt, SUM(COALESCE(api_call_count, 0)) as calls FROM sessions GROUP BY LOWER(COALESCE(billing_provider, ''))"
+                ).fetchall()
+                for r in rows:
+                    p = (r["p"] or "").strip()
+                    if p:
+                        usage_map[p] = {"sessions": int(r["cnt"] or 0), "calls": int(r["calls"] or 0)}
+        except Exception:
+            pass
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    # Load reasoning caps cache (470+ OpenRouter & core models; keyed by endpoint URL -> {"caps": {...}})
+    reasoning_caps = {}
+    rc_path = h_home / "cache" / "reasoning_caps.json"
+    if rc_path.exists():
+        try:
+            rc_raw = json.loads(rc_path.read_text(encoding="utf-8", errors="ignore"))
+            if isinstance(rc_raw, dict):
+                if isinstance(rc_raw.get("models"), dict):
+                    reasoning_caps.update(rc_raw["models"])
+                else:
+                    for val in rc_raw.values():
+                        if isinstance(val, dict) and isinstance(val.get("caps"), dict):
+                            reasoning_caps.update(val["caps"])
+                        elif isinstance(val, dict) and "supports_reasoning" in val:
+                            reasoning_caps.update(rc_raw)
+                            break
+        except Exception:
+            pass
+
+    # Optionally consult Hermes Python engine inventory & account_usage
+    hermes_inv_by_slug = {}
+    account_quota_windows = []
+    account_plan = ""
+    if bootstrap_hermes_cli(h_home):
+        try:
+            from hermes_cli.inventory import build_model_options_payload, load_picker_context
+            inv_payload = build_model_options_payload(load_picker_context(), explicit_only=False, include_unconfigured=True, refresh=False)
+            for row in inv_payload.get("providers") or []:
+                slug = str(row.get("slug") or "").strip().lower()
+                if slug:
+                    hermes_inv_by_slug[slug] = row
+        except Exception as e:
+            sys.stderr.write(f"Hermes inventory warning: {e}\n")
+        try:
+            from agent.account_usage import fetch_account_usage
+            snap = fetch_account_usage(cur_provider)
+            if snap:
+                account_plan = getattr(snap, "plan", "") or ""
+                for w in getattr(snap, "windows", []) or []:
+                    used_pct = float(getattr(w, "used_percent", 0) or 0)
+                    account_quota_windows.append({
+                        "label": getattr(w, "label", ""),
+                        "usedPercent": round(used_pct, 1),
+                        "remainingPercent": round(max(0.0, 100.0 - used_pct), 1),
+                        "resetsAt": w.reset_at.isoformat() if getattr(w, "reset_at", None) else None,
+                        "detail": getattr(w, "detail", "") or ""
+                    })
+        except Exception:
+            pass
+
+    # Parallel live probes for configured keys, OpenRouter public catalog, and local servers
+    probe_results = {}
+    compat_endpoints = {
+        "openai-api": "https://api.openai.com/v1",
+        "deepseek": "https://api.deepseek.com",
+        "groq": "https://api.groq.com/openai/v1",
+        "fireworks": "https://api.fireworks.ai/inference/v1",
+        "xai": "https://api.x.ai/v1",
+        "nvidia": "https://integrate.api.nvidia.com/v1",
+        "novita": "https://api.novita.ai/v3/openai",
+        "deepinfra": "https://api.deepinfra.com/v1/openai",
+        "alibaba": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        "kimi-coding": "https://api.moonshot.ai/v1",
+        "lmstudio": "http://localhost:1234/v1"
+    }
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {}
+        or_key = env_keys.get("OPENROUTER_API_KEY", "")
+        if force_refresh or or_key:
+            futures[pool.submit(_probe_openrouter_live, or_key, 4.5)] = "openrouter"
+
+        g_key = env_keys.get("GOOGLE_API_KEY") or env_keys.get("GEMINI_API_KEY", "")
+        if g_key:
+            futures[pool.submit(_probe_gemini_live, g_key, 4.0)] = "gemini"
+
+        a_key = env_keys.get("ANTHROPIC_API_KEY", "")
+        if a_key:
+            futures[pool.submit(_probe_anthropic_live, a_key, 4.0)] = "anthropic"
+
+        futures[pool.submit(_probe_ollama_live, cur_base_url if cur_provider == "ollama" else "http://localhost:11434", cur_model, 1.0)] = "ollama"
+
+        for p in providers:
+            pid = p["id"]
+            if pid in ("openrouter", "gemini", "anthropic", "ollama"):
+                continue
+            ev = p.get("envVar") or ""
+            k_val = env_keys.get(ev, "") if ev else ""
+            if k_val or pid == "lmstudio":
+                b_url = p.get("baseUrl") or compat_endpoints.get(pid, "")
+                t_out = 0.8 if pid == "lmstudio" else 3.5
+                futures[pool.submit(_probe_openai_compat_live, pid, b_url, k_val, t_out)] = pid
+
+        for fut in as_completed(futures):
+            pid = futures[fut]
+            try:
+                probe_results[pid] = fut.result()
+            except Exception as exc:
+                probe_results[pid] = {"keyStatus": "unverified", "keyDetail": str(exc), "models": []}
+
+    oauth_pids = {"openai-codex", "xai-oauth", "qwen-oauth", "minimax-oauth", "copilot", "copilot-acp", "vertex"}
+    flagship_priority = {
+        "openrouter": 500, "openai-codex": 480, "anthropic": 470, "openai-api": 460,
+        "gemini": 450, "deepseek": 430, "groq": 410, "ollama": 400, "nous": 390,
+        "xai": 380, "copilot-acp": 370, "copilot": 365, "fireworks": 350, "nvidia": 340,
+        "alibaba": 330, "deepinfra": 320, "kimi-coding": 310, "minimax": 300,
+        "lmstudio": 290, "zai": 280
+    }
+
+    quota_out = {}
+    or_probe = probe_results.get("openrouter") or {}
+    if or_probe.get("quota") and cur_provider == "openrouter":
+        quota_out = dict(or_probe["quota"])
+    elif or_probe.get("quota") and not account_quota_windows:
+        quota_out = dict(or_probe["quota"])
+    if account_quota_windows:
+        quota_out.setdefault("provider", cur_provider)
+        quota_out["windows"] = account_quota_windows
+        quota_out["plan"] = account_plan
+
+    session_usage = query_session_usage(db_path_str, None)
+    quota_out["todayRequests"] = session_usage.get("todayRequests", 0)
+
+    # Merge probe results, Hermes inventory, and reasoning_caps into each provider
+    enriched = []
+    for p in providers:
+        pid = p["id"]
+        pr = probe_results.get(pid)
+        inv = hermes_inv_by_slug.get(pid) or {}
+        u_info = usage_map.get(pid.lower(), {"sessions": 0, "calls": 0})
+        u_count = u_info["sessions"]
+
+        # Determine key status accurately
+        key_status = "missing"
+        key_detail = ""
+        if pr:
+            key_status = pr.get("keyStatus") or ("local" if pid == "ollama" else "missing")
+            key_detail = pr.get("keyDetail") or ""
+        elif inv.get("authenticated") or inv.get("configured") or inv.get("has_credential"):
+            key_status = "oauth" if pid in oauth_pids else "valid"
+            key_detail = "Authenticated in Hermes"
+        elif pid in auth_providers:
+            key_status = "oauth" if pid in oauth_pids else "valid"
+            key_detail = "Credentials in auth.json"
+        elif p.get("envVar") and env_keys.get(p["envVar"]):
+            key_status = "unverified"
+            key_detail = "API key saved in .env"
+
+        has_key = key_status in ("valid", "oauth", "local", "unverified")
+        if pid in ("ollama", "lmstudio") and pr and pr.get("keyStatus") != "local":
+            has_key = False
+            key_status = "offline" if pr.get("keyStatus") == "offline" else "missing"
+
+        # Build merged model list
+        existing_by_id = {m["id"]: dict(m) for m in (p.get("models") or [])}
+        # Merge Hermes inventory models if present
+        inv_models = inv.get("models") or []
+        inv_caps = inv.get("capabilities") or {}
+        for mid_raw in inv_models:
+            mid = mid_raw.get("id") if isinstance(mid_raw, dict) else str(mid_raw)
+            if not mid:
+                continue
+            if mid not in existing_by_id:
+                existing_by_id[mid] = {"id": mid, "name": clean_model_name(mid), "tag": "Catalog"}
+            cap = inv_caps.get(mid) or {}
+            if isinstance(cap, dict):
+                if "supports_reasoning" in cap:
+                    existing_by_id[mid]["reasoning"] = bool(cap["supports_reasoning"])
+                if cap.get("context_length"):
+                    existing_by_id[mid]["contextLimit"] = int(cap["context_length"])
+
+        # Merge live probe models (highest precedence!)
+        if pr and pr.get("models"):
+            live_by_id = {}
+            for lm in pr["models"]:
+                mid = lm["id"]
+                merged_m = dict(existing_by_id.get(mid, {}))
+                merged_m.update(lm)
+                live_by_id[mid] = merged_m
+            # Retain previous static entries not returned only for fallback
+            for mid, em in existing_by_id.items():
+                if mid not in live_by_id and len(live_by_id) < 20:
+                    live_by_id[mid] = em
+            existing_by_id = live_by_id
+
+        # Apply reasoning_caps metadata
+        m_list = list(existing_by_id.values())
+        for m in m_list:
+            mid = m["id"]
+            rc = reasoning_caps.get(mid)
+            if isinstance(rc, dict):
+                if "supports_reasoning" in rc:
+                    m["reasoning"] = bool(rc["supports_reasoning"])
+                if rc.get("supported_efforts"):
+                    m["reasoningEfforts"] = list(rc["supported_efforts"])
+                if "mandatory" in rc:
+                    m["reasoningMandatory"] = bool(rc["mandatory"])
+            elif "reasoning" not in m:
+                low_id = mid.lower()
+                if any(k in low_id for k in ("-r1", "o1", "o3", "o4", "thinking", "reason", "sonnet-4", "opus-4", "gemini-2.5", "gemini-3", "gpt-5")):
+                    m["reasoning"] = True
+
+        # Ensure current model appears under current provider
+        if pid == cur_provider and cur_model and cur_model not in existing_by_id:
+            m_list.insert(0, {"id": cur_model, "name": clean_model_name(cur_model), "tag": "Active"})
+
+        if pid == "openrouter":
+            m_list.sort(key=lambda x: (0 if x["id"] == cur_model else 1, 0 if x.get("tag") == "Free" else (1 if x.get("tag") in ("Top Rated", "Recommended") else 2)))
+            m_list = m_list[:150]
+
+        p_obj = dict(p)
+        p_obj["hasKey"] = has_key
+        p_obj["keyStatus"] = key_status
+        p_obj["keyDetail"] = key_detail
+        p_obj["usageCount"] = u_count
+        p_obj["apiCallCount"] = u_info["calls"]
+        p_obj["models"] = m_list
+        if pr and pid == "openrouter" and pr.get("quota"):
+            p_obj["quota"] = pr["quota"]
+        enriched.append(p_obj)
+
+    # Smart ranking: Active > Valid & Used > Valid > OAuth/Local > Configured > Flagship > Remaining
+    def _rank_key(item):
+        pid = item["id"]
+        is_cur = 1 if pid == cur_provider else 0
+        ks = item.get("keyStatus") or "missing"
+        ks_score = 3 if ks == "valid" else (2 if ks in ("oauth", "local") else (1 if ks == "unverified" else 0))
+        has_live_models = 1 if len(item.get("models") or []) > 0 else 0
+        u_cnt = int(item.get("usageCount") or 0)
+        calls = int(item.get("apiCallCount") or 0)
+        f_score = flagship_priority.get(pid, 0)
+        return (-is_cur, -ks_score, -u_cnt, -calls, -f_score, -has_live_models, pid)
+
+    enriched.sort(key=_rank_key)
+    for idx, item in enumerate(enriched):
+        item["rank"] = idx + 1
+        item["isTopPriority"] = idx < 20
+
+    cur_obj = dict(base_data.get("current") or {})
+    if reasoning_effort:
+        cur_obj["reasoningEffort"] = reasoning_effort
+
+    return {
+        "current": cur_obj,
+        "providers": enriched,
+        "quota": quota_out,
+        "todayRequests": session_usage.get("todayRequests", 0),
+        "syncTimestamp": int(time.time() * 1000),
+        "topLimit": 20,
+        "totalProviders": len(enriched)
+    }
+
 
 def get_model_config(hermes_home_str=None):
     print(json.dumps(query_model_config(hermes_home_str)))
@@ -948,6 +1592,15 @@ def run_daemon():
             elif action == "models":
                 h_home = req.get("hermesHome") or ""
                 res_data = query_model_config(h_home)
+            elif action in ("sync_catalog", "syncCatalog"):
+                h_home = req.get("hermesHome") or ""
+                db_p = req.get("dbPath") or ""
+                f_ref = bool(req.get("forceRefresh", True))
+                res_data = sync_live_catalog(h_home, db_p, f_ref)
+            elif action in ("session_usage", "sessionUsage"):
+                db_p = req.get("dbPath") or ""
+                sid = req.get("sessionId") or ""
+                res_data = query_session_usage(db_p, sid)
             elif action == "save_model":
                 h_home = req.get("hermesHome") or ""
                 prov = req.get("provider") or "openrouter"
@@ -986,6 +1639,14 @@ if __name__ == "__main__":
     elif action == "models":
         h_home = sys.argv[2] if len(sys.argv) > 2 else ""
         get_model_config(h_home)
+    elif action in ("sync_catalog", "sync-catalog"):
+        h_home = sys.argv[2] if len(sys.argv) > 2 else ""
+        db_path = sys.argv[3] if len(sys.argv) > 3 else ""
+        print(json.dumps(sync_live_catalog(h_home, db_path, True)))
+    elif action in ("session_usage", "session-usage"):
+        db_path = sys.argv[2] if len(sys.argv) > 2 else ""
+        sid = sys.argv[3] if len(sys.argv) > 3 else ""
+        print(json.dumps(query_session_usage(db_path, sid)))
     elif action == "archive":
         args = sys.argv[2:]
         if len(args) >= 3:

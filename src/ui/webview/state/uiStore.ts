@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import type { TabId, WebviewToHostMessage } from '../types';
+import type { CatalogSyncState, TabId, WebviewToHostMessage } from '../types';
 
 declare function acquireVsCodeApi(): {
     postMessage(message: any): void;
@@ -69,6 +69,10 @@ export function closeModal(): void {
 
 export const toastStore = writable<string | null>(null);
 export const voiceTranscriptStore = writable<{ text: string; timestamp: number } | null>(null);
+export const catalogSyncStore = writable<CatalogSyncState>({
+    syncing: false,
+    stage: ''
+});
 
 let toastTimer: any = null;
 export function showToast(message: string, duration: number = 2800): void {

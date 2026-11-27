@@ -16,11 +16,30 @@
     import { locale, t } from '../../i18n';
 
     let modelFilter = 'all';
+    let providerSearch = '';
     let isReconnecting = false;
 
     $: current = $modelConfigStore?.current || { provider: 'openrouter', model: '', baseUrl: '' };
     $: providers = $modelConfigStore?.providers || [];
     $: activeProvider = providers.find((p) => p.id === $selectedProviderId) || providers[0];
+    $: filteredProviders = providers.filter((p) => {
+        const q = providerSearch.trim().toLowerCase();
+        if (!q) return true;
+        return (p.id || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q);
+    });
+    $: topProviders = filteredProviders.filter((p, idx) => (p.isTopPriority !== undefined ? p.isTopPriority : idx < 20));
+    $: moreProviders = filteredProviders.filter((p, idx) => (p.isTopPriority !== undefined ? !p.isTopPriority : idx >= 20));
+
+    function keyBadgeInfo(prov) {
+        const st = prov?.keyStatus || (prov?.hasKey ? 'unverified' : 'missing');
+        if (st === 'valid') return { cls: 'valid', text: '✓ معتبر' };
+        if (st === 'invalid') return { cls: 'invalid', text: '✗ نامعتبر' };
+        if (st === 'oauth') return { cls: 'oauth', text: '🔐 OAuth' };
+        if (st === 'local') return { cls: 'local', text: '🖥️ محلی' };
+        if (st === 'unverified') return { cls: 'unverified', text: '⚡ کلید ثبت' };
+        if (st === 'offline') return { cls: 'offline', text: 'آفلاین' };
+        return { cls: 'missing', text: 'بدون کلید' };
+    }
 
     $: availableModels = (activeProvider?.models || []).filter((m) => {
         if (modelFilter === 'all') return true;
@@ -45,21 +64,26 @@
         $selectedReasoningEffort = current.reasoningEffort;
     }
 
-    function handleProviderChange(e) {
-        const target = e.target;
-        $selectedProviderId = target.value;
-        const prov = providers.find((p) => p.id === target.value);
+    function selectProviderById(pid) {
+        $selectedProviderId = pid;
+        const prov = providers.find((p) => p.id === pid);
         if (prov) {
             if (prov.models && prov.models.length > 0) {
                 $selectedModelId = prov.models[0]?.id || '';
+            } else {
+                $selectedModelId = '';
             }
-            if (target.value === current.provider && current.baseUrl && !current.baseUrl.includes('openrouter.ai')) {
+            if (pid === current.provider && current.baseUrl && !current.baseUrl.includes('openrouter.ai')) {
                 $baseUrlInput = current.baseUrl;
             } else {
                 $baseUrlInput = prov.baseUrl || '';
             }
         }
         $apiKeyInput = '';
+    }
+
+    function handleProviderChange(e) {
+        selectProviderById(e.target.value);
     }
 
     const effortLabels = {
@@ -74,6 +98,7 @@
 
     $: activeModelObj = activeProvider?.models?.find((m) => m.id === $selectedModelId);
     $: isReasoningSupported = activeModelObj ? (activeModelObj.reasoning !== false) : true;
+    $: isReasoningMandatory = activeModelObj?.reasoningMandatory === true;
     $: rawEfforts = activeModelObj?.reasoningEfforts && activeModelObj.reasoningEfforts.length > 0 
         ? activeModelObj.reasoningEfforts 
         : ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
@@ -126,8 +151,8 @@
     }
 
     function handleRefreshModels() {
-        postToHost({ type: 'refreshData' });
-        showToast('🔄 در حال همگام‌سازی لحظه‌ای مدل‌ها و تنظیمات از هرمس...');
+        postToHost({ type: 'syncCatalog', forceRefresh: true });
+        showToast('🔄 در حال همگام‌سازی زنده اپراتورها، مدل‌ها و کلیدهای API...');
     }
 </script>
 
@@ -153,28 +178,98 @@
     <div class="config-form-card obsidian-card">
         <h4>{t('models.title')}</h4>
 
-        <!-- Step 1: Provider / Operator -->
+        <!-- Step 1: Provider / Operator (Top 20 Prioritized + Scrollable Catalog) -->
         <div class="form-group">
-            <label for="select-provider">{t('models.operatorLabel')}</label>
-            <select 
-                id="select-provider" 
-                class="form-select" 
-                value={$selectedProviderId} 
-                on:change={handleProviderChange}
-            >
-                {#each providers as prov (prov.id)}
-                    <option value={prov.id}>{prov.name}</option>
-                {/each}
-            </select>
+            <div class="label-row">
+                <label for="provider-search-input">{t('models.operatorLabel')}</label>
+                <span class="model-count-label">({providers.length} اپراتور)</span>
+            </div>
+            <div class="provider-picker-shell">
+                <div class="provider-picker-topbar">
+                    <input
+                        id="provider-search-input"
+                        type="text"
+                        class="provider-search-input"
+                        bind:value={providerSearch}
+                        placeholder={t('models.searchProviders')}
+                    />
+                    <button
+                        type="button"
+                        class="btn-live-sync"
+                        on:click={handleRefreshModels}
+                        title={t('sync.refreshBtn')}
+                    >🔄 بروزرسانی</button>
+                </div>
+                <div class="provider-scroll-list" id="select-provider" role="listbox" aria-label={t('models.operatorLabel')}>
+                    {#if topProviders.length > 0}
+                        <div class="provider-section-divider">
+                            <span>★ {t('models.topOperators')}</span>
+                            <span>{topProviders.length}</span>
+                        </div>
+                        {#each topProviders as prov (prov.id)}
+                            {@const badge = keyBadgeInfo(prov)}
+                            <button
+                                type="button"
+                                class="provider-option-row {$selectedProviderId === prov.id ? 'active' : ''}"
+                                on:click={() => selectProviderById(prov.id)}
+                            >
+                                <div class="provider-row-main">
+                                    <span class="provider-row-title">#{prov.rank || '•'} {prov.name}</span>
+                                    <span class="provider-row-meta">
+                                        <span>{prov.id}</span>
+                                        <span>· {prov.models?.length || 0} مدل</span>
+                                        {#if prov.usageCount > 0}
+                                            <span>· {prov.usageCount} نشست</span>
+                                        {/if}
+                                    </span>
+                                </div>
+                                <div class="provider-row-badges">
+                                    <span class="key-badge {badge.cls}">{badge.text}</span>
+                                </div>
+                            </button>
+                        {/each}
+                    {/if}
+                    {#if moreProviders.length > 0}
+                        <div class="provider-section-divider">
+                            <span>↓ {t('models.moreOperators')}</span>
+                            <span>{moreProviders.length}</span>
+                        </div>
+                        {#each moreProviders as prov (prov.id)}
+                            {@const badge = keyBadgeInfo(prov)}
+                            <button
+                                type="button"
+                                class="provider-option-row {$selectedProviderId === prov.id ? 'active' : ''}"
+                                on:click={() => selectProviderById(prov.id)}
+                            >
+                                <div class="provider-row-main">
+                                    <span class="provider-row-title">#{prov.rank || '•'} {prov.name}</span>
+                                    <span class="provider-row-meta">
+                                        <span>{prov.id}</span>
+                                        <span>· {prov.models?.length || 0} مدل</span>
+                                    </span>
+                                </div>
+                                <div class="provider-row-badges">
+                                    <span class="key-badge {badge.cls}">{badge.text}</span>
+                                </div>
+                            </button>
+                        {/each}
+                    {/if}
+                </div>
+            </div>
         </div>
 
         <!-- Step 2: API Key -->
         <div class="form-group">
             <div class="label-row">
                 <label for="input-api-key">{t('models.apiKeyLabel')}</label>
-                <span class="key-status-tag">
-                    {activeProvider?.hasKey ? `✓ Key set (${activeProvider.keyMasked})` : '⚠️ No key set'}
-                </span>
+                {#if activeProvider}
+                    {@const activeBadge = keyBadgeInfo(activeProvider)}
+                    <span class="key-badge {activeBadge.cls}">
+                        {activeBadge.text} {activeProvider.keyMasked ? `(${activeProvider.keyMasked})` : ''} {activeProvider.keyDetail ? `— ${activeProvider.keyDetail}` : ''}
+                    </span>
+                {:else}
+                    <span class="key-status-tag">⚠️ No key set</span>
+                {/if}
             </div>
             <div class="input-with-button">
                 {#if $isKeyVisible}
@@ -303,11 +398,13 @@
                 {#if !isReasoningSupported}
                     <option value="none">غیرفعال (این مدل از تفکر و استدلال پشتیبانی نمی‌کند)</option>
                 {:else}
-                    {#each rawEfforts as eff}
+                    {#each rawEfforts.filter(e => !isReasoningMandatory || e !== 'none') as eff}
                         <option value={eff}>{effortLabels[eff] || eff}</option>
                     {/each}
-                    <option value="none">Disable reasoning (غیرفعال‌سازی تفکر / بدون تگ think)</option>
-                    <option value="default">Default / Skip (تنظیم پیش‌فرض سیستم)</option>
+                    {#if !isReasoningMandatory}
+                        <option value="none">Disable reasoning (غیرفعال‌سازی تفکر / بدون تگ think)</option>
+                        <option value="default">Default / Skip (تنظیم پیش‌فرض سیستم)</option>
+                    {/if}
                 {/if}
             </select>
             <span class="form-help">این گزینه مستقیماً به پروتکل ACP و تنظیمات config.yaml متصل است و عمق تفکر مدل‌های استدلالی (مانند Nemotron Ultra، DeepSeek R1، و Claude Thinking) را در پاسخ‌دهی کنترل می‌کند.</span>

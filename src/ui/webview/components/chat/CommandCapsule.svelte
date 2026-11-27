@@ -27,6 +27,7 @@
     let isPaletteOpen = false;
     let isFocused = false;
     let isCwdDropdownOpen = false;
+    let isTelemetryHudOpen = false;
     let isDraggingOver = false;
     let isRecording = false;
     let recordingSeconds = 0;
@@ -46,11 +47,18 @@
         return String(num);
     }
 
-    $: contextTotal = $tokenUsage?.total || 0;
+    $: contextTotal = $tokenUsage?.contextUsed ?? $tokenUsage?.total ?? 0;
     $: contextMax = $tokenUsage?.maxContext || 128000;
+    $: contextRemaining = $tokenUsage?.contextRemaining ?? Math.max(0, contextMax - contextTotal);
     $: contextPercent = $tokenUsage?.percentUsed !== undefined ? $tokenUsage.percentUsed : (contextMax > 0 ? Math.min(100, Math.round((contextTotal / contextMax) * 1000) / 10) : 0);
     $: contextHealth = contextPercent >= 85 ? 'critical' : (contextPercent >= 70 ? 'warning' : 'healthy');
     $: contextIcon = contextPercent >= 85 ? '🚨' : (contextPercent >= 70 ? '⚠️' : '⚡');
+    $: reqUsed = $tokenUsage?.requestsUsed;
+    $: reqLimit = $tokenUsage?.requestsLimit;
+    $: reqRemaining = $tokenUsage?.requestsRemaining;
+    $: sessionCalls = $tokenUsage?.apiCallCount || 0;
+    $: todayCalls = $tokenUsage?.todayRequests || 0;
+    $: quotaWindows = Array.isArray($tokenUsage?.quotaWindows) ? $tokenUsage.quotaWindows : [];
 
     $: displayCwd = $currentCwdStore
         ? ($currentCwdStore.replace(/\\/g, '/').split('/').filter(Boolean).pop() || 'root')
@@ -90,6 +98,9 @@
         const closeMenus = (e) => {
             if (!e.target.closest('.capsule-cwd-pill') && !e.target.closest('.cwd-dropdown-menu')) {
                 isCwdDropdownOpen = false;
+            }
+            if (!e.target.closest('#capsule-context-pill') && !e.target.closest('#telemetry-hud-window')) {
+                isTelemetryHudOpen = false;
             }
         };
         window.addEventListener('click', closeMenus);
@@ -313,6 +324,7 @@
     }
 
     function handleQuickCompress() {
+        isTelemetryHudOpen = false;
         openModal({
             icon: '🗜️',
             title: t('modal.compressTitle'),
@@ -325,10 +337,135 @@
             }
         });
     }
+
+    function toggleTelemetryHud(e) {
+        if (e) e.stopPropagation();
+        isTelemetryHudOpen = !isTelemetryHudOpen;
+        if (isTelemetryHudOpen) {
+            postToHost({ type: 'refreshUsage' });
+        }
+    }
+
+    function handleRefreshTelemetry(e) {
+        if (e) e.stopPropagation();
+        postToHost({ type: 'refreshUsage' });
+        showToast('🔄 ' + t('hud.refreshTelemetry'));
+    }
 </script>
 
 <div id="command-capsule-wrapper" class="command-capsule-wrapper">
     <CommandPalette isOpen={isPaletteOpen} on:close={() => isPaletteOpen = false} />
+
+    {#if isTelemetryHudOpen}
+        <div
+            id="telemetry-hud-window"
+            class="telemetry-hud-window"
+            role="dialog"
+            aria-label={t('hud.title')}
+        >
+            <div class="telemetry-hud-header">
+                <div class="telemetry-hud-title">
+                    <span>{contextIcon}</span>
+                    <span>{t('hud.title')}</span>
+                </div>
+                <div class="telemetry-hud-actions">
+                    <button type="button" class="telemetry-mini-btn" on:click={handleRefreshTelemetry}>
+                        🔄 {t('hud.refreshTelemetry')}
+                    </button>
+                    <button type="button" class="telemetry-mini-btn" on:click={() => isTelemetryHudOpen = false}>✕</button>
+                </div>
+            </div>
+
+            <div class="telemetry-section">
+                <div class="telemetry-section-label">
+                    <span>{t('hud.contextWindow')} ({$tokenUsage?.ceilingSource || 'Dynamic'})</span>
+                    <span>{contextPercent}%</span>
+                </div>
+                <div class="telemetry-bar-track">
+                    <div class="telemetry-bar-fill {contextHealth}" style="width: {Math.min(100, contextPercent)}%;"></div>
+                </div>
+                <div class="telemetry-stats-grid">
+                    <div class="telemetry-stat-box">
+                        <span class="telemetry-stat-k">{t('hud.used')}</span>
+                        <span class="telemetry-stat-v">{contextTotal.toLocaleString()}</span>
+                    </div>
+                    <div class="telemetry-stat-box">
+                        <span class="telemetry-stat-k">{t('hud.remaining')}</span>
+                        <span class="telemetry-stat-v">{contextRemaining.toLocaleString()}</span>
+                    </div>
+                    <div class="telemetry-stat-box three-col">
+                        <span class="telemetry-stat-k">{t('hud.capacity')}</span>
+                        <span class="telemetry-stat-v">{contextMax.toLocaleString()} tokens</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="telemetry-section">
+                <div class="telemetry-section-label">
+                    <span>{t('hud.tokensBreakdown')}</span>
+                    <button type="button" class="telemetry-mini-btn" on:click={handleQuickCompress}>
+                        🗜️ {t('banner.compressAction')}
+                    </button>
+                </div>
+                <div class="telemetry-stats-grid">
+                    <div class="telemetry-stat-box">
+                        <span class="telemetry-stat-k">ورودی / Prompt</span>
+                        <span class="telemetry-stat-v">{($tokenUsage?.prompt || 0).toLocaleString()}</span>
+                    </div>
+                    <div class="telemetry-stat-box">
+                        <span class="telemetry-stat-k">خروجی / Output</span>
+                        <span class="telemetry-stat-v">{($tokenUsage?.completion || 0).toLocaleString()}</span>
+                    </div>
+                    <div class="telemetry-stat-box">
+                        <span class="telemetry-stat-k">کش / Cached</span>
+                        <span class="telemetry-stat-v">{($tokenUsage?.cachedTokens || 0).toLocaleString()}</span>
+                    </div>
+                    <div class="telemetry-stat-box">
+                        <span class="telemetry-stat-k">استدلال / Reasoning</span>
+                        <span class="telemetry-stat-v">{($tokenUsage?.reasoningTokens || 0).toLocaleString()}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="telemetry-section">
+                <div class="telemetry-section-label">
+                    <span>{t('hud.requestsQuota')}</span>
+                    {#if $tokenUsage?.quotaPlan}
+                        <span>{$tokenUsage.quotaPlan}</span>
+                    {/if}
+                </div>
+                <div class="telemetry-stats-grid">
+                    <div class="telemetry-stat-box">
+                        <span class="telemetry-stat-k">{t('hud.sessionCalls')}</span>
+                        <span class="telemetry-stat-v">{sessionCalls}</span>
+                    </div>
+                    <div class="telemetry-stat-box">
+                        <span class="telemetry-stat-k">{t('hud.todayCalls')}</span>
+                        <span class="telemetry-stat-v">{todayCalls}</span>
+                    </div>
+                    {#if reqLimit !== null && reqLimit !== undefined}
+                        {@const qPct = reqLimit > 0 ? Math.min(100, Math.round(((reqUsed || 0) / reqLimit) * 100)) : 0}
+                        <div class="telemetry-stat-box three-col">
+                            <span class="telemetry-stat-k">{t('hud.dailyQuota')}</span>
+                            <span class="telemetry-stat-v">{reqUsed ?? 0} / {reqRemaining ?? Math.max(0, reqLimit - (reqUsed || 0))} / {reqLimit} ({qPct}%)</span>
+                        </div>
+                    {/if}
+                    {#if $tokenUsage?.creditsRemaining !== null && $tokenUsage?.creditsRemaining !== undefined}
+                        <div class="telemetry-stat-box three-col">
+                            <span class="telemetry-stat-k">{t('hud.credits')}</span>
+                            <span class="telemetry-stat-v">${Number($tokenUsage.creditsRemaining).toFixed(4)}</span>
+                        </div>
+                    {/if}
+                    {#each quotaWindows as qw}
+                        <div class="telemetry-stat-box three-col">
+                            <span class="telemetry-stat-k">{qw.label}</span>
+                            <span class="telemetry-stat-v">{qw.usedPercent}% مصرف · {qw.remainingPercent}% مانده</span>
+                        </div>
+                    {/each}
+                </div>
+            </div>
+        </div>
+    {/if}
 
     <div 
         class="command-capsule {isFocused ? 'focused' : ''} {isPaletteOpen ? 'command-mode' : ''} {isDraggingOver ? 'drag-over' : ''}" 
@@ -419,21 +556,31 @@
                     <span class="model-pill-name" id="capsule-reasoning-name">{$selectedReasoningEffort || 'high'}</span>
                 </button>
 
-                <!-- Context Window HUD & Smart Compaction Meter -->
-                {#if contextTotal > 0}
-                    <button 
-                        type="button" 
-                        class="capsule-model-pill capsule-context-pill {contextHealth}" 
-                        id="capsule-context-pill" 
-                        title="پنجره زمینه: {formatTokens(contextTotal)} / {formatTokens(contextMax)} ({contextPercent}% پر شده)&#10;ورودی: {formatTokens($tokenUsage?.prompt || 0)} | خروجی: {formatTokens($tokenUsage?.completion || 0)}"
-                        on:click={handleQuickCompress}
-                    >
-                        <span class="model-pill-icon">{contextIcon}</span>
-                        <span class="model-pill-name">{formatTokens(contextTotal)} / {formatTokens(contextMax)} ({contextPercent}%)</span>
-                        {#if contextPercent >= 70}
-                            <span class="compress-action-tag" title="فشرده‌سازی هوشمند">🗜️</span>
+                <!-- Always-Visible Context Window, Tokens & Requests HUD Pill -->
+                <button 
+                    type="button" 
+                    class="capsule-model-pill capsule-context-pill {contextHealth}" 
+                    id="capsule-context-pill" 
+                    title="پنجره زمینه: {formatTokens(contextTotal)} مصرف / {formatTokens(contextRemaining)} باقی‌مانده از {formatTokens(contextMax)} ({contextPercent}%) — کلیک برای جزئیات توکن و درخواست‌ها"
+                    on:click|stopPropagation={toggleTelemetryHud}
+                >
+                    <span class="model-pill-icon">{contextIcon}</span>
+                    <span class="model-pill-name">
+                        {formatTokens(contextTotal)} / {formatTokens(contextMax)} ({contextPercent}%)
+                        {#if reqLimit !== null && reqLimit !== undefined}
+                            · 📊 {reqUsed ?? 0}/{reqLimit}
+                        {:else if sessionCalls > 0 || todayCalls > 0}
+                            · 📊 {sessionCalls} reqs
                         {/if}
-                    </button>
+                    </span>
+                </button>
+                {#if contextPercent >= 70}
+                    <button
+                        type="button"
+                        class="capsule-model-pill capsule-context-pill {contextHealth} compress-action-tag"
+                        title="فشرده‌سازی هوشمند"
+                        on:click={handleQuickCompress}
+                    >🗜️</button>
                 {/if}
 
                 <!-- Visual CWD Selector Chip -->

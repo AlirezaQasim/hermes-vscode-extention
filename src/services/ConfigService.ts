@@ -8,9 +8,10 @@ export interface ModelItem {
     id: string;
     name: string;
     tag: string;
-    reasoning?: boolean;
-    reasoningEfforts?: string[];
-    contextLimit?: number;
+    reasoning?: boolean | undefined;
+    reasoningEfforts?: string[] | undefined;
+    reasoningMandatory?: boolean | undefined;
+    contextLimit?: number | undefined;
 }
 
 export interface ModelProviderInfo {
@@ -18,9 +19,16 @@ export interface ModelProviderInfo {
     name: string;
     envVar: string;
     hasKey: boolean;
+    keyStatus?: 'valid' | 'invalid' | 'missing' | 'oauth' | 'local' | 'unverified' | 'offline' | undefined;
+    keyDetail?: string | undefined;
     keyMasked: string;
     baseUrl: string;
     docUrl: string;
+    usageCount?: number | undefined;
+    apiCallCount?: number | undefined;
+    rank?: number | undefined;
+    isTopPriority?: boolean | undefined;
+    quota?: Record<string, any> | undefined;
     models: ModelItem[];
 }
 
@@ -32,6 +40,11 @@ export interface ModelConfigData {
         reasoningEffort: string;
     };
     providers: ModelProviderInfo[];
+    quota?: Record<string, any> | undefined;
+    todayRequests?: number | undefined;
+    syncTimestamp?: number | undefined;
+    topLimit?: number | undefined;
+    totalProviders?: number | undefined;
 }
 
 export const FALLBACK_PROVIDERS: Array<{ id: string; name: string; envVar: string; baseUrl: string }> = [
@@ -175,6 +188,7 @@ export class ConfigService extends EventEmitter {
     private envPath: string;
     private fileWatcher: fs.FSWatcher | null = null;
     private debounceTimer: NodeJS.Timeout | null = null;
+    private lastSyncedCatalog: ModelConfigData | null = null;
 
     constructor(logger: Logger) {
         super();
@@ -312,7 +326,7 @@ export class ConfigService extends EventEmitter {
         }
 
         // 2. Discover providers from Hermes disk cache (provider_models_cache.json)
-        for (const [pid, entry] of Object.entries(diskCachedProviders)) {
+        for (const [pid] of Object.entries(diskCachedProviders)) {
             if (!providerCandidates.has(pid)) {
                 let pName = pid;
                 if (pid === 'opencode-free') pName = 'OpenCode Free (Community / Keyless)';
@@ -352,7 +366,8 @@ export class ConfigService extends EventEmitter {
 
             let modelsList: ModelItem[] = [];
 
-            // A. Check models.dev authoritative cache
+            // A. Check models.dev authoritative cache & reasoning_caps.json
+            const reasoningCaps = this.readReasoningCaps();
             const mdevKey = PROVIDER_TO_MODELS_DEV[pid] || pid;
             const mdevProviderData = modelsDevCache[mdevKey];
             const rawModels = (mdevProviderData && typeof mdevProviderData === 'object' && mdevProviderData.models)
@@ -389,16 +404,31 @@ export class ConfigService extends EventEmitter {
                     let rawEntry = rawModels[mid] || rawModels[mid.toLowerCase()];
                     if (!rawEntry) {
                         const parts = mid.split('/');
-                        if (parts.length === 2 && modelsDevCache[parts[0]]?.models?.[parts[1]]) {
-                            rawEntry = modelsDevCache[parts[0]].models[parts[1]];
+                        const p0 = parts[0];
+                        const p1 = parts[1];
+                        if (parts.length === 2 && p0 && p1 && modelsDevCache[p0]?.models?.[p1]) {
+                            rawEntry = modelsDevCache[p0].models[p1];
                         }
                     }
-                    const reasoning = rawEntry ? (rawEntry.reasoning === true) : undefined;
+                    const capEntry = reasoningCaps[mid] || reasoningCaps[mid.toLowerCase()];
+                    let reasoning = rawEntry ? (rawEntry.reasoning === true) : undefined;
                     let reasoningEfforts: string[] | undefined = undefined;
+                    let reasoningMandatory: boolean | undefined = undefined;
                     if (rawEntry && Array.isArray(rawEntry.reasoning_options)) {
                         const effortOpt = rawEntry.reasoning_options.find((o: any) => o && o.type === 'effort');
                         if (effortOpt && Array.isArray(effortOpt.values) && effortOpt.values.length > 0) {
                             reasoningEfforts = effortOpt.values;
+                        }
+                    }
+                    if (capEntry && typeof capEntry === 'object') {
+                        if (typeof capEntry.supports_reasoning === 'boolean') {
+                            reasoning = capEntry.supports_reasoning;
+                        }
+                        if (Array.isArray(capEntry.supported_efforts) && capEntry.supported_efforts.length > 0) {
+                            reasoningEfforts = capEntry.supported_efforts;
+                        }
+                        if (typeof capEntry.mandatory === 'boolean') {
+                            reasoningMandatory = capEntry.mandatory;
                         }
                     }
                     const contextLimit = rawEntry?.limit?.context && typeof rawEntry.limit.context === 'number'
@@ -411,6 +441,7 @@ export class ConfigService extends EventEmitter {
                         tag: this.categorizeModel(mid),
                         reasoning,
                         reasoningEfforts,
+                        reasoningMandatory,
                         contextLimit
                     };
                 });
@@ -423,11 +454,15 @@ export class ConfigService extends EventEmitter {
 
             const isFallback = FALLBACK_PROVIDERS.some(f => f.id === pid);
             if (isFallback || modelsList.length > 0 || hasKey || pid === curProvider) {
+                const keyStatus = rawKey
+                    ? 'unverified'
+                    : (pid === 'ollama' ? 'local' : (pid.includes('oauth') || pid === 'openai-codex' || pid === 'copilot-acp' ? 'oauth' : 'missing'));
                 providersOut.push({
                     id: pid,
                     name: p.name,
                     envVar,
                     hasKey,
+                    keyStatus,
                     keyMasked,
                     baseUrl: p.baseUrl,
                     docUrl: '',
@@ -436,6 +471,21 @@ export class ConfigService extends EventEmitter {
             }
         }
 
+        // Prioritize active + configured providers into Top 20 while preserving all others cleanly
+        providersOut.sort((a, b) => {
+            const aCur = a.id === curProvider ? 1 : 0;
+            const bCur = b.id === curProvider ? 1 : 0;
+            if (aCur !== bCur) return bCur - aCur;
+            const aKey = a.hasKey ? 1 : 0;
+            const bKey = b.hasKey ? 1 : 0;
+            if (aKey !== bKey) return bKey - aKey;
+            return 0;
+        });
+        providersOut.forEach((p, idx) => {
+            p.rank = idx + 1;
+            p.isTopPriority = idx < 20;
+        });
+
         return {
             current: {
                 provider: curProvider,
@@ -443,8 +493,208 @@ export class ConfigService extends EventEmitter {
                 baseUrl: curBaseUrl,
                 reasoningEffort: curReasoningEffort
             },
-            providers: providersOut
+            providers: providersOut,
+            topLimit: 20,
+            totalProviders: providersOut.length
         };
+    }
+
+    public getLastSyncedCatalog(): ModelConfigData | null {
+        return this.lastSyncedCatalog;
+    }
+
+    private readReasoningCaps(): Record<string, any> {
+        const result: Record<string, any> = {};
+        try {
+            const rcPath = path.join(this.hermesHome, 'cache', 'reasoning_caps.json');
+            if (!fs.existsSync(rcPath)) return result;
+            const raw = JSON.parse(fs.readFileSync(rcPath, 'utf8'));
+            if (raw && typeof raw === 'object') {
+                if (raw.models && typeof raw.models === 'object') {
+                    Object.assign(result, raw.models);
+                } else {
+                    for (const val of Object.values<any>(raw)) {
+                        if (val && typeof val === 'object' && val.caps && typeof val.caps === 'object') {
+                            Object.assign(result, val.caps);
+                        } else if (val && typeof val === 'object' && 'supports_reasoning' in val) {
+                            Object.assign(result, raw);
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch {
+            // Ignore cache read error
+        }
+        return result;
+    }
+
+    /**
+     * Full live synchronization: combines Hermes Python live probes (API keys, server catalogs,
+     * Ollama/local reachability, DB usage ranking, account quotas) with live ACP session models.
+     */
+    public async syncCatalogWithHermes(
+        sessionService: { syncLiveCatalog?: (hermesHome: string, forceRefresh?: boolean) => Promise<any> } | null,
+        acpModels: any[] = [],
+        forceRefresh: boolean = true
+    ): Promise<ModelConfigData> {
+        const baseline = await this.getModelConfig();
+        let liveData: any = null;
+        if (sessionService && typeof sessionService.syncLiveCatalog === 'function') {
+            try {
+                liveData = await sessionService.syncLiveCatalog(this.hermesHome, forceRefresh);
+            } catch (err) {
+                this.logger.warn('Live catalog Python sync failed, falling back to local catalog + ACP:', err);
+            }
+        }
+
+        const mergedProviders = new Map<string, ModelProviderInfo>();
+        for (const bp of baseline.providers) {
+            mergedProviders.set(bp.id, { ...bp, models: [...bp.models] });
+        }
+
+        if (liveData && Array.isArray(liveData.providers)) {
+            for (const lp of liveData.providers) {
+                const baseP = mergedProviders.get(lp.id);
+                const liveModels: ModelItem[] = Array.isArray(lp.models) ? lp.models : [];
+                let combinedModels = liveModels;
+                if (baseP && baseP.models.length > 0) {
+                    const seenIds = new Set(liveModels.map(m => m.id.toLowerCase()));
+                    combinedModels = [
+                        ...liveModels.map(m => {
+                            const prev = baseP.models.find(b => b.id.toLowerCase() === m.id.toLowerCase());
+                            return prev ? { ...prev, ...m } : m;
+                        }),
+                        ...(liveModels.length === 0 ? baseP.models : baseP.models.filter(b => !seenIds.has(b.id.toLowerCase())).slice(0, 25))
+                    ];
+                }
+                mergedProviders.set(lp.id, {
+                    ...(baseP || {}),
+                    ...lp,
+                    models: combinedModels
+                });
+            }
+        }
+
+        // Overlay live ACP session availableModels onto their respective or current provider
+        const curProviderId = (liveData?.current?.provider || baseline.current.provider || 'openrouter');
+        if (Array.isArray(acpModels) && acpModels.length > 0) {
+            for (const am of acpModels) {
+                const mid = am?.modelId || am?.id;
+                if (!mid) continue;
+                const targetPid = am?.provider || curProviderId;
+                const prov = mergedProviders.get(targetPid) || mergedProviders.get(curProviderId);
+                if (prov) {
+                    const existingIdx = prov.models.findIndex(m => m.id.toLowerCase() === String(mid).toLowerCase());
+                    const prevModel = existingIdx >= 0 ? prov.models[existingIdx] : undefined;
+                    const item: ModelItem = {
+                        id: mid,
+                        name: am?.name || this.cleanModelName(mid),
+                        tag: prevModel ? prevModel.tag : 'ACP Live',
+                        reasoning: typeof am?.reasoning === 'boolean' ? am.reasoning : prevModel?.reasoning,
+                        reasoningEfforts: am?.reasoningEfforts || prevModel?.reasoningEfforts,
+                        reasoningMandatory: am?.reasoningMandatory ?? prevModel?.reasoningMandatory,
+                        contextLimit: am?.contextWindow || am?.contextLength || prevModel?.contextLimit
+                    };
+                    if (existingIdx >= 0 && prevModel) {
+                        prov.models[existingIdx] = { ...prevModel, ...item };
+                    } else {
+                        prov.models.unshift(item);
+                    }
+                }
+            }
+        }
+
+        // Respect Python ordering if present, otherwise sort cleanly; always mark Top 20 priority
+        const orderedList: ModelProviderInfo[] = [];
+        if (liveData && Array.isArray(liveData.providers)) {
+            const added = new Set<string>();
+            for (const lp of liveData.providers) {
+                const p = mergedProviders.get(lp.id);
+                if (p) {
+                    orderedList.push(p);
+                    added.add(lp.id);
+                }
+            }
+            for (const [id, p] of mergedProviders.entries()) {
+                if (!added.has(id)) orderedList.push(p);
+            }
+        } else {
+            orderedList.push(...mergedProviders.values());
+        }
+
+        orderedList.forEach((p, idx) => {
+            p.rank = idx + 1;
+            p.isTopPriority = idx < 20;
+        });
+
+        const synced: ModelConfigData = {
+            current: {
+                provider: liveData?.current?.provider || baseline.current.provider,
+                model: liveData?.current?.model || baseline.current.model,
+                baseUrl: liveData?.current?.baseUrl ?? baseline.current.baseUrl,
+                reasoningEffort: liveData?.current?.reasoningEffort || baseline.current.reasoningEffort
+            },
+            providers: orderedList,
+            quota: liveData?.quota || undefined,
+            todayRequests: liveData?.todayRequests ?? liveData?.quota?.todayRequests ?? 0,
+            syncTimestamp: liveData?.syncTimestamp || Date.now(),
+            topLimit: 20,
+            totalProviders: orderedList.length
+        };
+
+        this.lastSyncedCatalog = synced;
+        return synced;
+    }
+
+    /**
+     * Resolves both context window limit AND the tier/source that supplied it.
+     */
+    public resolveModelContextWithSource(modelId: string, provider?: string, liveAcpSize?: number): { limit: number; source: string } {
+        if (typeof liveAcpSize === 'number' && liveAcpSize > 0) {
+            return { limit: liveAcpSize, source: 'ACP Live Session' };
+        }
+        const mid = (modelId || '').trim();
+        if (mid && this.lastSyncedCatalog) {
+            const pMatch = provider ? this.lastSyncedCatalog.providers.find(p => p.id === provider) : null;
+            const searchPools = pMatch ? [pMatch, ...this.lastSyncedCatalog.providers] : this.lastSyncedCatalog.providers;
+            for (const p of searchPools) {
+                const mFound = p.models.find(m => m.id === mid || m.id.toLowerCase() === mid.toLowerCase());
+                if (mFound?.contextLimit && mFound.contextLimit > 0) {
+                    return { limit: mFound.contextLimit, source: 'Live Provider Catalog' };
+                }
+            }
+        }
+        const limit = this.resolveModelContextCeiling(modelId, provider, liveAcpSize);
+        let source = 'Model Family Heuristic';
+        try {
+            const modelsDevFile = path.join(this.hermesHome, 'models_dev_cache.json');
+            if (mid && fs.existsSync(modelsDevFile)) {
+                const devData = JSON.parse(fs.readFileSync(modelsDevFile, 'utf8'));
+                const provKey = provider ? (PROVIDER_TO_MODELS_DEV[provider] || provider) : null;
+                const sp = provKey && devData[provKey] ? [devData[provKey]] : Object.values(devData);
+                for (const p of sp) {
+                    const mObj = p?.models?.[mid] || p?.models?.[mid.toLowerCase()];
+                    if (mObj?.limit?.context === limit) {
+                        source = 'Hermes models.dev Cache';
+                        break;
+                    }
+                }
+            }
+            if (source === 'Model Family Heuristic' && mid) {
+                const oFile = path.join(this.hermesHome, 'ollama_cloud_models_cache.json');
+                if (fs.existsSync(oFile)) {
+                    const oData = JSON.parse(fs.readFileSync(oFile, 'utf8'));
+                    const om = oData?.[mid] || oData?.[mid.toLowerCase()];
+                    if (om && (om.num_ctx === limit || om.context_length === limit)) {
+                        source = 'Ollama Local Metadata';
+                    }
+                }
+            }
+        } catch {
+            // Keep source label
+        }
+        return { limit, source };
     }
 
     /**

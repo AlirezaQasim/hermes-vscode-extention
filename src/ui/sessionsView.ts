@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { Logger } from '../utils/logger';
-import { HermesDatabase, type HermesSession } from '../config/hermesConfig';
+import { HermesDatabase } from '../config/hermesConfig';
 
 export interface SessionInfo {
     sessionId: string;
@@ -17,6 +17,8 @@ export class SessionsViewProvider implements vscode.TreeDataProvider<vscode.Tree
     private hermesDb: HermesDatabase;
     private sessions: SessionInfo[] = [];
     private isLoading = false;
+    private hasLoaded = false;
+    private needsReload = true;
     private onDidChangeTreeDataEmitter = new vscode.EventEmitter<vscode.TreeItem | undefined | null | void>();
     readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
 
@@ -26,12 +28,15 @@ export class SessionsViewProvider implements vscode.TreeDataProvider<vscode.Tree
     }
 
     refresh(): void {
+        this.needsReload = true;
         this.onDidChangeTreeDataEmitter.fire();
     }
 
     setSessions(sessions: SessionInfo[]): void {
         this.sessions = sessions;
-        this.refresh();
+        this.hasLoaded = true;
+        this.needsReload = false;
+        this.onDidChangeTreeDataEmitter.fire();
     }
 
     async loadSessions(): Promise<SessionInfo[]> {
@@ -39,22 +44,22 @@ export class SessionsViewProvider implements vscode.TreeDataProvider<vscode.Tree
         this.isLoading = true;
         try {
             const dbSessions = await this.hermesDb.getSessions(50);
-            if (dbSessions && dbSessions.length > 0) {
-                this.sessions = dbSessions.map(s => ({
-                    sessionId: s.id,
-                    title: s.title || s.id,
-                    cwd: s.cwd || '',
-                    model: s.model || '',
-                    historyLen: s.messageCount || 0,
-                    updatedAt: s.updatedAt || s.createdAt || Date.now(),
-                    source: s.source
-                }));
-            }
+            this.sessions = (dbSessions || []).map(s => ({
+                sessionId: s.id,
+                title: s.title || s.id,
+                cwd: s.cwd || '',
+                model: s.model || '',
+                historyLen: s.messageCount || 0,
+                updatedAt: s.updatedAt || s.createdAt || Date.now(),
+                source: s.source
+            }));
+            this.hasLoaded = true;
+            this.needsReload = false;
         } catch (error) {
             this.logger.error('Failed to load sessions from DB', error);
         } finally {
             this.isLoading = false;
-            this.refresh();
+            this.onDidChangeTreeDataEmitter.fire();
         }
         return this.sessions;
     }
@@ -65,7 +70,7 @@ export class SessionsViewProvider implements vscode.TreeDataProvider<vscode.Tree
 
     async getChildren(element?: vscode.TreeItem): Promise<vscode.TreeItem[]> {
         if (!element) {
-            if (this.sessions.length === 0 && !this.isLoading) {
+            if ((!this.hasLoaded || this.needsReload) && !this.isLoading) {
                 await this.loadSessions();
             }
 

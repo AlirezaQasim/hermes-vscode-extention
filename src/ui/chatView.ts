@@ -2,9 +2,8 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import type { Logger } from '../utils/logger';
-import { getHermesSafeCwd } from '../utils/hermesPaths';
 import { ConfigService, SessionService, SkillService } from '../services';
 
 interface ChatMessage {
@@ -33,7 +32,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private connected = false;
     private currentSessionId: string | null = null;
     private sessionTitle: string = '';
-    private tokenUsage: { prompt: number; completion: number; total: number } | null = null;
+    private tokenUsage: any = null;
+    private quotaInfo: any = null;
+    private catalogSyncState: { syncing: boolean; stage: string; error?: string | undefined; lastSyncedAt?: number | undefined } = {
+        syncing: false,
+        stage: ''
+    };
+    private syncInFlight: Promise<void> | null = null;
     private pendingAgentMessage: string = '';
     private pendingThinking: string = '';
     private selectedCwd: string | null = null;
@@ -94,8 +99,71 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
         });
 
-        // Initial background data load
-        this.loadDashboardData().then(() => this.refresh());
+        // Initial load + automatic live startup synchronization with blocking Updating popup
+        this.loadDashboardData()
+            .then(() => this.refresh())
+            .then(() => this.syncLiveCatalog(true, 'در حال بروزرسانی لیست اپراتورها، مدل‌ها، سطوح استدلال و بررسی API Key...'));
+    }
+
+    private emitCatalogSyncState(syncing: boolean, stage: string, error?: string): void {
+        this.catalogSyncState = {
+            syncing,
+            stage,
+            error,
+            lastSyncedAt: syncing ? this.catalogSyncState.lastSyncedAt : Date.now()
+        };
+        if (this.view?.webview) {
+            this.view.webview.postMessage({
+                type: 'catalogSyncState',
+                catalogSyncState: this.catalogSyncState
+            });
+        }
+    }
+
+    public async syncLiveCatalog(forceRefresh: boolean = true, stageLabel?: string): Promise<void> {
+        if (this.syncInFlight) {
+            return this.syncInFlight;
+        }
+        const runSync = async (): Promise<void> => {
+            this.emitCatalogSyncState(
+                true,
+                stageLabel || 'در حال دریافت لیست زنده از ACP و سرورهای پرووایدرها و بررسی API Key...'
+            );
+            try {
+                const ctx = this.getContext ? this.getContext() : (global as any).hermesExtensionContext;
+                const acpModels = ctx?.client ? await ctx.client.getAvailableModels(this.currentSessionId || undefined).catch(() => []) : [];
+                const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 26000));
+                const synced = await Promise.race([
+                    this.configService.syncCatalogWithHermes(this.sessionService, acpModels, forceRefresh),
+                    timeoutPromise
+                ]);
+                if (synced) {
+                    this.modelConfig = synced;
+                    if (synced.quota) {
+                        this.quotaInfo = synced.quota;
+                    }
+                } else if (!this.modelConfig) {
+                    this.modelConfig = await this.configService.getModelConfig();
+                }
+                await this.hydrateSessionTokenUsage();
+            } catch (error) {
+                this.logger.warn('Live catalog sync error:', error);
+                if (!this.modelConfig) {
+                    this.modelConfig = await this.configService.getModelConfig().catch(() => null);
+                }
+            } finally {
+                this.emitCatalogSyncState(false, '');
+                this.refresh();
+            }
+        };
+
+        const tracked = runSync().finally(() => {
+            if (this.syncInFlight === tracked) {
+                this.syncInFlight = null;
+            }
+        });
+        this.syncInFlight = tracked;
+        return tracked;
     }
 
     setConnected(connected: boolean): void {
@@ -120,7 +188,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.pendingAgentMessage = '';
         this.pendingThinking = '';
         this.agentActivity = { state: 'idle', label: this.connected ? 'Local CLI' : 'Disconnected', detail: '' };
-        this.refresh();
+        this.hydrateSessionTokenUsage().then(() => this.refresh());
     }
 
     setActiveTab(tab: 'chat' | 'sessions' | 'skills' | 'models' | 'settings'): void {
@@ -157,13 +225,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.isStreamingInsideThink = false;
         this.agentActivity = { state: 'idle', label: this.connected ? 'Local CLI' : 'Disconnected', detail: '' };
         this.activeTab = 'chat';
-        this.refresh();
-        if (this.view?.webview) {
-            this.view.webview.postMessage({
-                type: 'turnComplete',
-                agentActivity: this.agentActivity
-            });
-        }
+        this.hydrateSessionTokenUsage().then(() => {
+            this.refresh();
+            if (this.view?.webview) {
+                this.view.webview.postMessage({
+                    type: 'turnComplete',
+                    agentActivity: this.agentActivity
+                });
+            }
+        });
     }
 
     resetAgentActivity(): void {
@@ -467,28 +537,90 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.refresh();
     }
 
-    updateTokenUsage(usage: any): void {
-        const activeModel = this.modelConfig?.current?.model || '';
-        const activeProvider = this.modelConfig?.current?.provider || '';
-        const maxContext = this.configService.resolveModelContextCeiling(
+    private buildTokenUsageSnapshot(usage?: any, dbUsage?: any): any {
+        const activeModel = this.modelConfig?.current?.model || dbUsage?.model || '';
+        const activeProvider = this.modelConfig?.current?.provider || dbUsage?.provider || '';
+        const ceiling = this.configService.resolveModelContextWithSource(
             activeModel,
             activeProvider,
             usage?.maxContextTokens || usage?.size
         );
-        const prompt = usage?.promptTokens || usage?.prompt || 0;
-        const completion = usage?.completionTokens || usage?.completion || 0;
-        const total = usage?.totalTokens || usage?.total || (prompt + completion);
-        const percentUsed = maxContext > 0 ? Math.min(100, Math.round((total / maxContext) * 1000) / 10) : 0;
+        const maxContext = ceiling.limit || 128000;
+        const prompt = usage?.promptTokens ?? usage?.prompt ?? dbUsage?.inputTokens ?? 0;
+        const completion = usage?.completionTokens ?? usage?.completion ?? dbUsage?.outputTokens ?? 0;
+        const total = usage?.totalTokens ?? usage?.total ?? (prompt + completion);
+        const contextUsed = total;
+        const contextRemaining = Math.max(0, maxContext - contextUsed);
+        const percentUsed = maxContext > 0 ? Math.min(100, Math.round((contextUsed / maxContext) * 1000) / 10) : 0;
 
-        this.tokenUsage = {
+        const q = this.quotaInfo || this.modelConfig?.quota || {};
+        const todayRequests = Math.max(
+            Number(dbUsage?.todayRequests ?? 0),
+            Number(q?.todayRequests ?? this.modelConfig?.todayRequests ?? 0)
+        );
+
+        return {
             prompt,
             completion,
             total,
+            contextUsed,
+            contextRemaining,
             maxContext,
             percentUsed,
-            cachedTokens: usage?.cachedTokens
+            ceilingSource: ceiling.source,
+            cachedTokens: usage?.cachedTokens ?? dbUsage?.cacheReadTokens ?? 0,
+            reasoningTokens: usage?.reasoningTokens ?? dbUsage?.reasoningTokens ?? 0,
+            apiCallCount: Number(dbUsage?.apiCallCount ?? this.tokenUsage?.apiCallCount ?? 0),
+            todayRequests,
+            quotaProvider: q?.provider || activeProvider,
+            requestsUsed: q?.requestsUsed ?? null,
+            requestsLimit: q?.requestsLimit ?? null,
+            requestsRemaining: q?.requestsRemaining ?? null,
+            creditsTotal: q?.creditsTotal ?? null,
+            creditsUsage: q?.creditsUsage ?? null,
+            creditsRemaining: q?.creditsRemaining ?? null,
+            usageDaily: q?.usageDaily ?? null,
+            usageWeekly: q?.usageWeekly ?? null,
+            isFreeTier: q?.isFreeTier ?? null,
+            quotaWindows: Array.isArray(q?.windows) ? q.windows : [],
+            quotaPlan: q?.plan || '',
+            modelName: activeModel,
+            providerName: activeProvider
         };
+    }
+
+    public async hydrateSessionTokenUsage(liveUsageOverride?: any): Promise<void> {
+        try {
+            const dbUsage = await this.sessionService.getSessionUsage(this.currentSessionId || undefined).catch(() => ({}));
+            this.tokenUsage = this.buildTokenUsageSnapshot(liveUsageOverride, dbUsage);
+        } catch (err) {
+            this.logger.warn('Failed to hydrate session token usage:', err);
+            if (!this.tokenUsage) {
+                this.tokenUsage = this.buildTokenUsageSnapshot(liveUsageOverride, {});
+            }
+        }
+    }
+
+    updateTokenUsage(usage: any): void {
+        this.tokenUsage = this.buildTokenUsageSnapshot(usage, undefined);
+        const ctx = this.getContext ? this.getContext() : (global as any).hermesExtensionContext;
+        ctx?.statusBar?.updateTokenUsage({
+            promptTokens: this.tokenUsage.prompt,
+            completionTokens: this.tokenUsage.completion,
+            totalTokens: this.tokenUsage.total,
+            maxContextTokens: this.tokenUsage.maxContext,
+            percentUsed: this.tokenUsage.percentUsed
+        });
         this.refresh();
+        // Also refresh persisted DB call counters asynchronously
+        this.sessionService.getSessionUsage(this.currentSessionId || undefined)
+            .then((dbUsage) => {
+                if (dbUsage && this.tokenUsage) {
+                    this.tokenUsage = this.buildTokenUsageSnapshot(usage, dbUsage);
+                    this.refresh();
+                }
+            })
+            .catch(() => {});
     }
 
     private updateLastMessage(content: string): void {
@@ -508,14 +640,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     async loadDashboardData(): Promise<void> {
         try {
+            const syncedCache = this.configService.getLastSyncedCatalog();
             const [sessions, skills, modelConfig] = await Promise.all([
                 this.sessionService.getSessions(50),
                 this.skillService.getSkills(),
-                this.configService.getModelConfig()
+                syncedCache ? Promise.resolve(syncedCache) : this.configService.getModelConfig()
             ]);
             this.allSessions = sessions || [];
             this.allSkills = skills || [];
             this.modelConfig = modelConfig;
+            if (modelConfig?.quota) {
+                this.quotaInfo = modelConfig.quota;
+            }
+            await this.hydrateSessionTokenUsage();
         } catch (error) {
             this.logger.error('Failed to load dashboard data', error);
         }
@@ -581,7 +718,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             } catch {}
                         }
                         const ctx = this.getContext ? this.getContext() : (global as any).hermesExtensionContext;
-                        ctx?.sessionsProvider?.refresh();
+                        await ctx?.sessionsProvider?.loadSessions();
                         await this.loadDashboardData();
                         this.refresh();
                     } else {
@@ -602,8 +739,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 }
                 break;
             case 'getModelConfig':
-                this.modelConfig = await this.configService.getModelConfig();
-                this.refresh();
+                if (message.forceRefresh || !this.configService.getLastSyncedCatalog()) {
+                    await this.syncLiveCatalog(true);
+                } else {
+                    this.modelConfig = this.configService.getLastSyncedCatalog();
+                    this.refresh();
+                }
+                break;
+            case 'syncCatalog':
+                await this.syncLiveCatalog(message.forceRefresh !== false);
+                break;
+            case 'refreshUsage':
+                await this.syncLiveCatalog(false, 'در حال بروزرسانی آمار کانتکست، توکن و درخواست‌ها...');
                 break;
             case 'saveModelConfig':
                 await this.handleSaveModelConfig(message.provider, message.model, message.apiKey, message.baseUrl, message.reasoningEffort);
@@ -633,7 +780,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             case 'refreshDashboard':
             case 'refreshData':
                 await this.loadDashboardData();
-                this.refresh();
+                await this.syncLiveCatalog(true);
                 break;
             case 'updateSetting':
                 if (message.key) {
@@ -689,12 +836,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     await ctx.client.setReasoningEffort(reasoningEffort, this.currentSessionId || undefined);
                 }
                 vscode.window.showInformationMessage(`Hermes model updated: ${model} on ${provider} (Reasoning: ${reasoningEffort || 'high'})`);
-                // Re-fetch model config
-                this.modelConfig = await this.configService.getModelConfig();
-                // Create a fresh new session using the new model
+                // Create a fresh new session using the new model and run live sync to verify API key + models + quota
                 await this.createNewSession();
                 this.activeTab = 'chat';
-                this.refresh();
+                await this.syncLiveCatalog(true, 'در حال اعتبارسنجی کلید API و دریافت لیست مدل‌های جدید...');
             } else {
                 vscode.window.showErrorMessage('Failed to update Hermes model configuration.');
             }
@@ -712,8 +857,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 if (ctx?.client) {
                     await ctx.client.setReasoningEffort(effort, this.currentSessionId || undefined);
                 }
-                this.modelConfig = await this.configService.getModelConfig();
-                this.refresh();
+                if (this.modelConfig?.current) {
+                    this.modelConfig.current.reasoningEffort = effort;
+                }
+                await this.syncLiveCatalog(false);
                 vscode.window.showInformationMessage(`سطح استدلال هرمس روی "${effort}" تنظیم شد.`);
             }
         } catch (error) {
@@ -734,9 +881,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             await this.cancelTurn();
         } catch {}
 
+        const ctx = this.getContext ? this.getContext() : (global as any).hermesExtensionContext;
         if (sid) {
+            if (ctx?.client && this.connected) {
+                try {
+                    await ctx.client.resetSession(sid);
+                } catch (resetErr) {
+                    this.logger.warn(`ACP /reset warning for session ${sid}:`, resetErr);
+                }
+            }
             try {
-                this.logger.info(`Purging message history for session ${sid} from DB...`);
+                this.logger.info(`Purging message history for session ${sid} from DB (session stays in Sessions list)...`);
                 await this.sessionService.clearSessionMessages(sid);
                 const target = this.allSessions.find(s => s.id === sid);
                 if (target) {
@@ -750,8 +905,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             await this.createNewSession();
         }
 
-        const ctx = this.getContext ? this.getContext() : (global as any).hermesExtensionContext;
-        ctx?.sessionsProvider?.refresh();
+        this.tokenUsage = this.buildTokenUsageSnapshot(
+            { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, reasoningTokens: 0 },
+            { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, reasoningTokens: 0, apiCallCount: 0 }
+        );
+        await ctx?.sessionsProvider?.loadSessions();
         await this.loadDashboardData();
         this.refresh();
 
@@ -778,12 +936,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             this.logger.info(`Invoking context compression for session: ${this.currentSessionId}`);
             vscode.window.showInformationMessage('⏳ در حال فشرده‌سازی هوشمند کانتکست توسط هرمس...');
             await ctx.client.compressContext(this.currentSessionId);
-            await this.loadSessionMessages(this.currentSessionId);
+            const refreshedMsgs = await this.sessionService.getSessionMessages(this.currentSessionId);
+            this.loadMessages(this.currentSessionId, refreshedMsgs, this.sessionTitle);
             await this.loadDashboardData();
             this.refresh();
             if (this.view?.webview) {
                 this.view.webview.postMessage({
                     type: 'contextCompressed',
+                    success: true,
                     sessionId: this.currentSessionId
                 });
             }
@@ -1419,6 +1579,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 sessionId: this.currentSessionId,
                 sessionTitle: this.sessionTitle,
                 tokenUsage: this.tokenUsage,
+                catalogSyncState: this.catalogSyncState,
                 modelConfig: this.modelConfig,
                 sessions: this.allSessions,
                 skills: this.allSkills,

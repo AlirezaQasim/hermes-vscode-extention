@@ -1,6 +1,6 @@
 <script>
     import { onMount } from 'svelte';
-    import { activeTab, isConnected, autoApproveSetting, cwdSetting, appVersion, agentActivity, modalStore, openModal, closeModal, toastStore, showToast, voiceTranscriptStore, postToHost } from '../state/uiStore';
+    import { activeTab, isConnected, autoApproveSetting, cwdSetting, appVersion, agentActivity, modalStore, openModal, closeModal, toastStore, showToast, voiceTranscriptStore, catalogSyncStore, postToHost } from '../state/uiStore';
     import { messages, currentSessionId, sessionTitle, tokenUsage, isStreaming, attachmentsStore, addAttachment, projectFoldersStore, currentCwdStore, requestContextCompression } from '../state/chatStore';
     import { sessionsList } from '../state/sessionStore';
     import { skillsList } from '../state/skillStore';
@@ -183,6 +183,13 @@
                 return;
             }
 
+            if (data.type === 'catalogSyncState') {
+                if (data.catalogSyncState) {
+                    catalogSyncStore.set(data.catalogSyncState);
+                }
+                return;
+            }
+
             if (data.type !== 'update') return;
 
             if (data.agentActivity) {
@@ -206,6 +213,7 @@
             if (data.sessionId !== undefined) $currentSessionId = data.sessionId;
             if (data.sessionTitle !== undefined) $sessionTitle = data.sessionTitle;
             if (data.tokenUsage !== undefined) $tokenUsage = data.tokenUsage;
+            if (data.catalogSyncState !== undefined) catalogSyncStore.set(data.catalogSyncState);
             if (data.modelConfig !== undefined) {
                 $modelConfigStore = data.modelConfig;
                 if (data.modelConfig?.current?.reasoningEffort) {
@@ -223,8 +231,8 @@
 
         window.addEventListener('message', handleMessage);
 
-        // Tell host webview is loaded and ready
-        postToHost({ type: 'refreshData' });
+        // Tell host webview is loaded and ready (reuses in-flight or cached catalog)
+        postToHost({ type: 'getModelConfig' });
 
         return () => {
             window.removeEventListener('message', handleMessage);
@@ -354,6 +362,17 @@
         {#if $toastStore}
             <div class="toast-notification">
                 {$toastStore}
+            </div>
+        {/if}
+
+        <!-- Persistent Blocking Updating Overlay (stays open until catalog & API key sync finishes) -->
+        {#if $catalogSyncStore.syncing}
+            <div class="sync-updating-overlay" role="dialog" aria-modal="true" aria-label={t('sync.updatingTitle')}>
+                <div class="sync-updating-card obsidian-card">
+                    <div class="sync-spinner-ring"></div>
+                    <h4 class="sync-updating-title">{t('sync.updatingTitle')}</h4>
+                    <p class="sync-updating-stage">{$catalogSyncStore.stage || t('sync.updatingSub')}</p>
+                </div>
             </div>
         {/if}
     {/key}

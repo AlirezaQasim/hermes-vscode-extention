@@ -137,6 +137,28 @@ export const fa: Record<string, string> = {
     'banner.contextOverflowDesc': 'پیشنهاد می‌شود برای جلوگیری از کندی یا افت کیفیت، گفتگو فشرده‌سازی شود.',
     'banner.compressAction': 'فشرده‌سازی هوشمند',
 
+    // Syncing Popup & Telemetry HUD
+    'sync.updatingTitle': 'در حال بروزرسانی لیست‌ها و بررسی کلیدها',
+    'sync.updatingSub': 'دریافت لحظه‌ای اپراتورها، مدل‌ها، قابلیت‌های استدلال و اعتبارسنجی API Key...',
+    'sync.refreshBtn': 'بروزرسانی زنده از ACP و سرورها',
+    'hud.title': 'پنجره کانتکست، توکن و درخواست‌ها',
+    'hud.contextWindow': 'پنجره زمینه (Context Window)',
+    'hud.used': 'مصرف‌شده',
+    'hud.remaining': 'باقی‌مانده',
+    'hud.capacity': 'سقف کل',
+    'hud.tokensBreakdown': 'جزئیات توکن‌ها',
+    'hud.requestsQuota': 'درخواست‌ها و سهمیه',
+    'hud.sessionCalls': 'درخواست‌های این نشست',
+    'hud.todayCalls': 'کل درخواست‌های امروز',
+    'hud.dailyQuota': 'سهمیه روزانه (مصرف / باقی‌مانده / سقف)',
+    'hud.credits': 'اعتبار باقی‌مانده',
+    'hud.refreshTelemetry': 'بروزرسانی آمار',
+    'models.topOperators': '۲۰ اپراتور اول و پرکاربرد (اولویت بالا)',
+    'models.moreOperators': 'سایر اپراتورها و پرووایدرها (اسکرول کنید)',
+    'models.searchProviders': 'جستجوی اپراتور یا پرووایدر...',
+    'cmd.clear.desc': 'پاک کردن تاریخچه پیام‌ها بدون حذف سشن از لیست',
+    'cmd.compress.desc': 'فشرده‌سازی هوشمند پنجره کانتکست و آزادسازی توکن',
+
     // Footer Bar
     'footer.agent': 'HERMES / v1.0.4',
     'footer.tagline': 'محلی. مستقل. تحت کنترل شما.'

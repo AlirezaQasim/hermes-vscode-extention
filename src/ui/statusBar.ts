@@ -70,24 +70,22 @@ export class StatusBarManager {
         this.statusBarItem.tooltip = `Hermes Agent - Session: ${sessionId} - Click to open chat`;
     }
 
-    updateTokenUsage(usage: { promptTokens: number; completionTokens: number; totalTokens: number }): void {
+    updateTokenUsage(usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; maxContextTokens?: number; percentUsed?: number }): void {
         const total = usage.totalTokens || 0;
         const prompt = usage.promptTokens || 0;
         const completion = usage.completionTokens || 0;
+        const maxCtx = usage.maxContextTokens || 128000;
+        const pct = typeof usage.percentUsed === 'number' ? usage.percentUsed : Math.min(100, Math.round((total / maxCtx) * 1000) / 10);
 
-        if (total > 0) {
-            this.tokenUsageItem.text = `$(graph) ${this.formatTokens(total)} tokens (${this.formatTokens(prompt)}+${this.formatTokens(completion)})`;
-            
-            // Color code based on usage
-            if (total > 800000) {
-                this.tokenUsageItem.color = new vscode.ThemeColor('statusBarItem.errorForeground');
-            } else if (total > 500000) {
-                this.tokenUsageItem.color = new vscode.ThemeColor('statusBarItem.warningForeground');
-            } else {
-                this.tokenUsageItem.color = undefined;
-            }
+        this.tokenUsageItem.text = `$(graph) ${this.formatTokens(total)}/${this.formatTokens(maxCtx)} (${pct}%)`;
+        this.tokenUsageItem.tooltip = `Context: ${total.toLocaleString()} / ${maxCtx.toLocaleString()} (${pct}%)\nPrompt: ${prompt.toLocaleString()} | Completion: ${completion.toLocaleString()}`;
+
+        if (pct >= 80 || total > 800000) {
+            this.tokenUsageItem.color = new vscode.ThemeColor('statusBarItem.errorForeground');
+        } else if (pct >= 65 || total > 500000) {
+            this.tokenUsageItem.color = new vscode.ThemeColor('statusBarItem.warningForeground');
         } else {
-            this.tokenUsageItem.text = '';
+            this.tokenUsageItem.color = undefined;
         }
     }
 

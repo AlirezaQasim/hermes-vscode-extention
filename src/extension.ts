@@ -16,7 +16,6 @@ import { Logger } from './utils/logger';
 import { getHermesSafeCwd } from './utils/hermesPaths';
 import { ConfigService, SessionService, SkillService } from './services';
 import * as fs from 'fs';
-import * as path from 'path';
 
 export interface ExtensionContext {
     client: HermesACPClient | null;
@@ -323,6 +322,10 @@ async function connectToHermes(): Promise<void> {
             if (ctx.config.get('showTokenUsage', true)) {
                 ctx.chatProvider.updateTokenUsage(usage);
             }
+        });
+
+        client.on('modelsUpdated', () => {
+            ctx.chatProvider.syncLiveCatalog(false, 'در حال همگام‌سازی مدل‌های زنده ACP...').catch(() => {});
         });
 
         client.on('error', (error) => {
@@ -710,17 +713,6 @@ function handleSessionUpdate(update: any): void {
 
     const payload = update?.update || update;
     const kind = payload?.sessionUpdate || payload?.session_update || payload?.kind || payload?.type;
-    const rawContent = payload?.content;
-    let contentText = '';
-    if (typeof rawContent === 'string') {
-        contentText = rawContent;
-    } else if (rawContent?.text) {
-        contentText = rawContent.text;
-    } else if (Array.isArray(rawContent)) {
-        contentText = rawContent.map((c: any) => c.text || c.content?.text || '').join('');
-    } else if (rawContent) {
-        contentText = String(rawContent);
-    }
 
     switch (kind) {
         case 'available_commands_update':
