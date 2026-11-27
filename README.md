@@ -112,25 +112,6 @@ code --install-extension hermes-vscode-1.0.4.vsix --force
 
 ---
 
-## 🏆 Release Highlights (v1.0.4)
-
-* **SQLite Trigger Deletion Guard Resolution:** Neutralized error `Refused to delete a session that has gateway runtime history` caused by SQLite trigger `sessions_runtime_ledger_delete_guard` on the `sessions` table. Explicitly cascades deletions through `session_admissions` (`target_session_id`), `worker_executions` (`session_id`), `messages`, and gateway ledger tables before safely deleting sessions.
-* **Guaranteed Physical Deletion:** Both session deletion in Sessions tab (Active & Archived) and Clear Chat in Chat tab now physically and irreversibly delete sessions and all associated messages from `state.db`. Resuming cleared sessions will never resurrect old messages.
-* **Stale Daemon Cleanup:** Automatically terminates orphaned background Python daemons upon extension lifecycle updates, preventing outdated code execution.
-* **Verified Quality:** 100% test pass rate across 9 test suites (42 unit tests).
-
----
-
-## 🏆 Release Highlights (v1.0.3)
-
-* **Permanent Session Deletion & Concurrency Fix:** Resolved SQLite database lock contention (`database is locked`) by eliminating unclosed connection leaks and integrating automated CLI fallback, guaranteeing reliable deletion across Active and Archived sessions.
-* **Clear Chat Warning Modal:** Added a mandatory confirmation dialog before clearing conversations, informing users of irreversibility.
-* **Zero Ghost Resurrections:** Cleared conversations now permanently delete their message history from disk and re-initialize a fresh session ID, preventing previous chats from being restored via Resume Session.
-* **Responsive Python Daemon:** Refactored IPC loop to use unbuffered line reading, preventing Windows pipe buffer delays.
-* **Verified Quality:** 100% test pass rate across 9 test suites (42 unit tests).
-
----
-
 ## 📖 Configuration & Command Reference
 
 ### Settings (`hermes.*`)
@@ -155,29 +136,6 @@ Configure settings in VS Code Preferences (`Ctrl+,` → search "Hermes"):
 | `hermes.newSession` | `Ctrl+Alt+N` | Start a new session |
 | `hermes.cancelTurn` | `Ctrl+Alt+C` | Cancel the running generation / tool call |
 
----
-
-## 🏆 Release Highlights (v1.0.2)
-
-* **Robust API Key Persistence:** Resolved `.env` duplicate key collisions with atomic multi-line replacement and immediate UI mask synchronization.
-* **Full OpenRouter & Free Tier Catalog:** Directly merged Hermes curated catalog with all Free Tier models (`nvidia/nemotron-3-ultra-550b-a55b:free`, `nvidia/nemotron-3.5-lightning:free`, etc.) and automated selection snapping.
-* **Native Voice Notes & Gemini Audio STT:** Complete recording pipeline with PowerShell recording engine and Google Gemini speech-to-text.
-* **Reasoning Effort Configuration (CLI Option 41):** Full ACP integration allowing on-the-fly reasoning effort adjustments from Minimal to Ultra.
-* **Strict ACP-Linked Skill Learning Banners:** Skill learning cards appear strictly upon active ACP skill creation events rather than general command turns.
-* **Responsive Multi-Row Layouts:** Compact view adaptations preventing element collisions on small screens and narrow sidebars.
-* **Verified Quality:** 100% test pass rate across 8 test suites (38 unit tests).
-
----
-
-## 🏆 Release Highlights (v1.0.0)
-
-* **Svelte Architecture Rewrite:** Replaced monolithic legacy scripts with a modern, modular Svelte SPA and reactive state stores.
-* **Obsidian-Gold Design System:** Complete Figma-grade visual overhaul with polished dark glassmorphism and gold accents.
-* **Real-Time ACP Status Engine:** Synchronized agent thinking, skill writing, and tool calls with top HUD capsules.
-* **Event-Driven Hot-Reload Watcher:** Auto-detection of external `config.yaml` and `.env` edits without restarting.
-* **Full Bilingual Support:** Native Persian (RTL) & English (LTR) language support with one-click toggling.
-* **SQLite Session Storage:** Fast session restoration, active/archived separation, and search.
-* **Verified Quality:** 100% test pass rate across 7 test suites (31 unit tests).
 
 ---
 
